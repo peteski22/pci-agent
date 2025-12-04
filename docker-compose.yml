@@ -1,0 +1,19 @@
+services:
+  agent:
+    build: .
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./models:/app/models:ro
+    environment:
+      - CONTEXT_STORE_URL=http://context-store:8081
+      - MODEL_PATH=/app/models/phi-3-mini-q4.gguf
+      - PORT=8082
+
+  # Optional: standalone context store for local dev
+  context-store:
+    image: ghcr.io/peteski22/pci-context-store:latest
+    ports:
+      - "8081:8081"
+    profiles:
+      - with-deps
