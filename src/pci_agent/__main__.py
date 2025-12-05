@@ -19,11 +19,11 @@ import json
 import os
 import uuid
 from datetime import datetime, timedelta
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
-from urllib.parse import urlparse, parse_qs
-from urllib.request import urlopen, Request
 from urllib.error import URLError
+from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
 
 # Service configuration
 ZKP_SERVICE_URL = os.environ.get("ZKP_SERVICE_URL", "http://localhost:8084")
@@ -89,31 +89,33 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._send_json(tip)
 
         elif path == "/":
-            self._send_json({
-                "service": "pci-agent",
-                "version": "0.1.0",
-                "description": "Coordinates verification flow between users and businesses",
-                "services": {
-                    "zkp": ZKP_SERVICE_URL,
-                    "cardano": CARDANO_API_URL,
-                },
-                "endpoints": [
-                    "GET /health",
-                    "GET /services - check connected service status",
-                    "GET /cardano/tip - get Cardano chain tip",
-                    "",
-                    "# Service Requests (User -> Business)",
-                    "GET /service-requests - list service requests for business",
-                    "POST /service-requests - user initiates a service request",
-                    "",
-                    "# Verification Requests (Business -> User)",
-                    "GET /requests - list verification requests for user",
-                    "GET /requests/:id - get single request",
-                    "POST /requests - business creates verification request",
-                    "POST /requests/:id/approve - user approves request (generates ZK proof)",
-                    "POST /requests/:id/deny - user denies request",
-                ],
-            })
+            self._send_json(
+                {
+                    "service": "pci-agent",
+                    "version": "0.1.0",
+                    "description": "Coordinates verification flow between users and businesses",
+                    "services": {
+                        "zkp": ZKP_SERVICE_URL,
+                        "cardano": CARDANO_API_URL,
+                    },
+                    "endpoints": [
+                        "GET /health",
+                        "GET /services - check connected service status",
+                        "GET /cardano/tip - get Cardano chain tip",
+                        "",
+                        "# Service Requests (User -> Business)",
+                        "GET /service-requests - list service requests for business",
+                        "POST /service-requests - user initiates a service request",
+                        "",
+                        "# Verification Requests (Business -> User)",
+                        "GET /requests - list verification requests for user",
+                        "GET /requests/:id - get single request",
+                        "POST /requests - business creates verification request",
+                        "POST /requests/:id/approve - user approves request (generates ZK proof)",
+                        "POST /requests/:id/deny - user denies request",
+                    ],
+                }
+            )
 
         elif path == "/service-requests":
             # Business polls for incoming service requests
@@ -214,7 +216,9 @@ class AgentHandler(BaseHTTPRequestHandler):
         }
 
         SERVICE_REQUESTS[request_id] = request
-        print(f"[Agent] User {request['userName']} initiated service request {request_id}: {request['serviceName']}")
+        user_name = request["userName"]
+        service_name = request["serviceName"]
+        print(f"[Agent] User {user_name} initiated service request {request_id}: {service_name}")
         self._send_json(request, 201)
 
     def _create_verification_request(self) -> None:
@@ -247,7 +251,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             SERVICE_REQUESTS[service_request_id]["status"] = "verification_required"
             SERVICE_REQUESTS[service_request_id]["verificationRequestId"] = request_id
 
-        print(f"[Agent] Business {request['businessName']} created verification request {request_id}")
+        biz_name = request["businessName"]
+        print(f"[Agent] Business {biz_name} created verification request {request_id}")
         self._send_json(request, 201)
 
     def _approve_request(self, request_id: str) -> None:
@@ -261,49 +266,47 @@ class AgentHandler(BaseHTTPRequestHandler):
             self._send_error(400, f"Request already {request['status']}")
             return
 
-        # Generate ZK proof via Midnight (calls pci-zkp service)
-        claim = request["claim"]
-        proof_type = claim.get("type", "age")
+        # Read user's private data from request body (agent doesn't interpret this)
+        user_data = self._read_body() or {}
 
-        # Prepare proof request data
+        # Get the claim requirements from the verification request
+        claim = request["claim"]
+        proof_type = claim.get("type", "unknown")
+
+        # Build proof request - merge claim requirements with user's private data
+        # Agent is generic: just passes data through to ZKP service
         proof_data = {
-            "minAge": claim.get("minAge", 18),
+            **claim,  # Business requirements (e.g., minAge)
+            **user_data,  # User's private data (e.g., birthDate)
             "requestId": request_id,
             "timestamp": datetime.utcnow().isoformat() + "Z",
         }
 
-        # Call real ZKP service
+        # Call ZKP service - all verification logic lives there, not here
         print(f"[Agent] Calling ZKP service at {ZKP_SERVICE_URL}/proofs/{proof_type}")
         zkp_result = call_zkp_service(proof_type, proof_data)
 
         if zkp_result.get("error"):
-            # Fallback to mock proof if ZKP service unavailable
-            print(f"[Agent] ZKP service unavailable, using fallback: {zkp_result.get('error')}")
-            if proof_type == "age":
-                proof_response = {
-                    "verified": True,
-                    "publicSignals": {"ageOver": claim.get("minAge", 18)},
-                    "proof": "fallback_proof_" + request_id,
-                    "source": "fallback",
-                }
-            else:
-                proof_response = {
-                    "verified": True,
-                    "publicSignals": {"credentialValid": True},
-                    "proof": "fallback_proof_" + request_id,
-                    "source": "fallback",
-                }
-        else:
-            # Use real proof from ZKP service
+            # ZKP service unavailable - cannot generate proof
+            print(f"[Agent] ZKP service error: {zkp_result.get('error')}")
             proof_response = {
-                "verified": zkp_result.get("proof", {}).get("verified", True),
-                "publicSignals": zkp_result.get("proof", {}).get("publicSignals", {}),
-                "proof": zkp_result.get("proof", {}),
-                "source": "midnight",
+                "verified": False,
+                "error": "ZKP service unavailable",
+                "source": "error",
             }
-            print(f"[Agent] Real ZK proof generated via Midnight")
+        else:
+            # Use proof from ZKP service
+            # The verified status is inside publicSignals
+            public_signals = zkp_result.get("proof", {}).get("publicSignals", {})
+            proof_response = {
+                "verified": public_signals.get("verified", False),
+                "publicSignals": public_signals,
+                "proof": zkp_result.get("proof", {}),
+                "source": "zkp",
+            }
+            print(f"[Agent] ZK proof generated, verified={proof_response['verified']}")
 
-        request["status"] = "approved"
+        request["status"] = "approved" if proof_response.get("verified") else "denied"
         request["response"] = proof_response
         request["respondedAt"] = datetime.utcnow().isoformat() + "Z"
 
@@ -357,8 +360,9 @@ class AgentHandler(BaseHTTPRequestHandler):
 
     def _check_services_status(self) -> dict[str, Any]:
         """Check status of connected services (ZKP and Cardano)."""
+        agent_port = os.environ.get("PORT", "8082")
         services = {
-            "agent": {"status": "healthy", "url": f"http://localhost:{os.environ.get('PORT', '8082')}"},
+            "agent": {"status": "healthy", "url": f"http://localhost:{agent_port}"},
             "zkp": {"status": "unknown", "url": ZKP_SERVICE_URL},
             "cardano": {"status": "unknown", "url": CARDANO_API_URL},
         }

@@ -3,7 +3,7 @@
 import pytest
 
 from pci_agent import Agent, AgentConfig
-from pci_agent.policy import PolicyChecker, PolicyCheckResult
+from pci_agent.policy import PolicyChecker
 
 
 class TestAgent:
