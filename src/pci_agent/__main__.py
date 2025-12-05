@@ -306,16 +306,20 @@ class AgentHandler(BaseHTTPRequestHandler):
             }
             print(f"[Agent] ZK proof generated, verified={proof_response['verified']}")
 
-        request["status"] = "approved" if proof_response.get("verified") else "denied"
+        is_verified = proof_response.get("verified", False)
+        # "approved" = proof passed, "rejected" = proof failed (user didn't meet criteria)
+        request["status"] = "approved" if is_verified else "rejected"
         request["response"] = proof_response
         request["respondedAt"] = datetime.utcnow().isoformat() + "Z"
 
-        # Update linked service request
+        # Update linked service request based on verification result
         service_request_id = request.get("serviceRequestId")
         if service_request_id and service_request_id in SERVICE_REQUESTS:
-            SERVICE_REQUESTS[service_request_id]["status"] = "verified"
+            new_status = "verified" if is_verified else "rejected"
+            SERVICE_REQUESTS[service_request_id]["status"] = new_status
 
-        print(f"[Agent] Request {request_id} APPROVED")
+        status_str = "APPROVED" if is_verified else "REJECTED (verification failed)"
+        print(f"[Agent] Request {request_id} {status_str}")
         self._send_json(request)
 
     def _deny_request(self, request_id: str) -> None:
