@@ -14,11 +14,13 @@ The PCI Agent provides:
 ## Installation
 
 ```bash
-# Using uv
-uv pip install pci-agent
+# Clone and install
+git clone https://github.com/peteski22/pci-agent.git
+cd pci-agent
+uv sync
 
-# With LLM support
-uv pip install "pci-agent[llm]"
+# With LLM support (llama-cpp-python)
+uv sync --extra llm
 ```
 
 ## Quick Start
@@ -66,20 +68,31 @@ The agent works with GGUF-format models:
 | Mistral | 7B | 8GB | Better |
 | Llama 3.1 | 8B | 10GB | Best |
 
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8082` | HTTP server port |
+| `ZKP_SERVICE_URL` | `http://localhost:8084` | ZKP service endpoint |
+| `CARDANO_API_URL` | `http://localhost:8080` | Cardano devnet API endpoint |
+
 ## Development
 
 ```bash
-# Install dev dependencies
-uv pip install -e ".[dev]"
+# Install with dev dependencies
+uv sync --group dev
 
 # Run tests
-pytest
+uv run pytest
 
 # Type check
-mypy src/
+uv run mypy src/
 
 # Lint
-ruff check src/
+uv run ruff check src/
+
+# Run the agent
+uv run python -m pci_agent
 ```
 
 ## Related Packages
@@ -88,6 +101,7 @@ ruff check src/
 - [pci-context-store](https://github.com/peteski22/pci-context-store) - Layer 1: Context Store
 - [pci-contracts](https://github.com/peteski22/pci-contracts) - Layer 3: Smart Contracts
 - [pci-zkp](https://github.com/peteski22/pci-zkp) - Layer 4: Zero-Knowledge Proofs
+- [pci-identity](https://github.com/peteski22/pci-identity) - Layer 5: DID Management
 
 ## License
 
