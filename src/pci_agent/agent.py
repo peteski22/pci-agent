@@ -135,6 +135,8 @@ class Agent:
         """Cleanup resources"""
         await self._context_client.disconnect()
         if self._llm is not None:
-            await self._llm.unload()
-            self._llm = None
+            try:
+                await self._llm.unload()
+            finally:
+                self._llm = None
         self._initialized = False

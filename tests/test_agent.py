@@ -1,5 +1,6 @@
 """Tests for the PCI Agent"""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -51,10 +52,10 @@ class TestAgentWithLLM:
     """Tests for the Agent class with LLM integration"""
 
     @pytest.fixture
-    def llm_config(self) -> AgentConfig:
+    def llm_config(self, tmp_path: Path) -> AgentConfig:
         return AgentConfig(
             llm=LLMConfig(
-                model_path="/tmp/test-model.gguf",
+                model_path=str(tmp_path / "test-model.gguf"),
                 context_length=2048,
                 n_gpu_layers=0,
             )
@@ -70,7 +71,8 @@ class TestAgentWithLLM:
             mock_load.assert_called_once()
             assert agent._llm is not None
             assert isinstance(agent._llm, LocalLLM)
-            assert agent._llm.config.model_path == "/tmp/test-model.gguf"
+            assert agent._llm.config.model_path is not None
+            assert agent._llm.config.model_path.endswith("test-model.gguf")
 
     async def test_generate_response_calls_llm(self, llm_config: AgentConfig) -> None:
         """Test that _generate_response uses the LLM when loaded"""
@@ -86,6 +88,8 @@ class TestAgentWithLLM:
             response = await agent.process("What is 2+2?")
 
             mock_gen.assert_called_once()
+            prompt_arg = mock_gen.call_args.args[0]
+            assert "Question: What is 2+2?" in prompt_arg
             assert response.content == "Generated answer"
 
     async def test_prompt_includes_context(self) -> None:
