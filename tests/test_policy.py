@@ -1,8 +1,5 @@
 """Comprehensive tests for S-PAL policy evaluation."""
 
-import json
-from pathlib import Path
-
 import pytest
 
 from pci_agent.policy import PolicyChecker
@@ -17,11 +14,6 @@ from pci_agent.spal import (
     RequestIdentity,
     SPALPolicy,
 )
-
-EXAMPLES_DIR = (
-    Path(__file__).resolve().parents[2] / "pci-spec" / "schemas" / "spal" / "v1.0" / "examples"
-)
-
 
 # --- Helpers ---
 
@@ -62,6 +54,49 @@ def _derivs(
         "aggregation": aggregation,
         "resale": resale,
     }
+
+
+# --- Realistic policy fixture (based on pci-spec health-records example) ---
+
+HEALTH_POLICY_FIXTURE: dict = {
+    "version": "1.0",
+    "id": "spal:did:pci:cardano:addr1abc123:health-records",
+    "name": "Health Records Access Policy",
+    "owner": "did:pci:cardano:addr1abc123",
+    "rules": [
+        {
+            "id": "rule-diagnosis",
+            "context_scope": "medical/diagnosis_codes",
+            "conditions": {
+                "identity": {"type": "ephemeral_required", "linkage": "forbidden"},
+                "proofs": [{"type": "zkp", "claim": "is_licensed_provider"}],
+                "retention": {"max_seconds": 0, "audit_log": True},
+                "derivatives": _derivs(),
+            },
+        },
+        {
+            "id": "rule-vaccination-status",
+            "context_scope": "medical/immunization/status",
+            "conditions": {
+                "identity": {"type": "ephemeral_required", "linkage": "forbidden"},
+                "proofs": [{"type": "zkp", "claim": "has_vaccination"}],
+                "retention": {"max_seconds": 3600, "audit_log": True},
+                "derivatives": _derivs(aggregation="anonymized_only"),
+                "payment": {"protocol": "x402", "amount": 100, "currency": "sats"},
+            },
+        },
+        {
+            "id": "rule-allergies",
+            "context_scope": "medical/allergies",
+            "conditions": {
+                "identity": {"type": "ephemeral_required", "linkage": "forbidden"},
+                "proofs": [{"type": "zkp", "claim": "has_allergy"}],
+                "retention": {"max_seconds": 0, "audit_log": True},
+                "derivatives": _derivs(),
+            },
+        },
+    ],
+}
 
 
 # --- Model parsing tests ---
@@ -118,20 +153,14 @@ class TestSPALModelParsing:
         assert isinstance(req.linkage, IdentityLinkage)
         assert req.linkage.zk_continuity_allowed is True
 
-    @pytest.mark.skipif(not EXAMPLES_DIR.exists(), reason="pci-spec examples not available")
-    def test_parse_health_records_example(self) -> None:
-        data = json.loads((EXAMPLES_DIR / "health-records.json").read_text())
-        policy = SPALPolicy.model_validate(data)
+    def test_parse_multi_rule_policy_with_all_conditions(self) -> None:
+        """Parse a realistic policy with identity, proofs, retention, derivatives, payment."""
+        policy = SPALPolicy.model_validate(HEALTH_POLICY_FIXTURE)
         assert policy.name == "Health Records Access Policy"
         assert len(policy.rules) == 3
         assert policy.rules[0].context_scope == "medical/diagnosis_codes"
-
-    @pytest.mark.skipif(not EXAMPLES_DIR.exists(), reason="pci-spec examples not available")
-    def test_parse_employment_example(self) -> None:
-        data = json.loads((EXAMPLES_DIR / "employment.json").read_text())
-        policy = SPALPolicy.model_validate(data)
-        assert policy.name == "Employment Verification Policy"
-        assert len(policy.rules) == 3
+        assert policy.rules[1].conditions.payment is not None
+        assert policy.rules[1].conditions.payment.amount == 100
 
 
 # --- Scope matching tests ---
@@ -249,6 +278,15 @@ class TestConditionEvaluation:
         assert "requires request context" in (result.reason or "")
         assert result.required_conditions is not None
         assert len(result.required_conditions.proofs) == 1
+
+    async def test_empty_conditions_allows_without_request_context(
+        self, checker: PolicyChecker
+    ) -> None:
+        """A rule with no effective conditions should allow without request_context."""
+        await checker.load_policy("p", _policy_dict([_rule_dict(conditions={})]))
+        result = await checker.check("p", "query", context_scope="test/data")
+        assert result.allowed is True
+        assert result.matched_rule_id == "rule-1"
 
     # --- Identity ---
 
@@ -555,23 +593,16 @@ class TestConditionEvaluation:
         assert result.matched_rule_id == "rule-1"
 
 
-# --- Integration with real example policies ---
+# --- Integration with realistic policy ---
 
 
-@pytest.mark.skipif(not EXAMPLES_DIR.exists(), reason="pci-spec examples not available")
-class TestRealPolicyIntegration:
+class TestRealisticPolicyIntegration:
     @pytest.fixture
     def checker(self) -> PolicyChecker:
         return PolicyChecker()
 
-    @pytest.fixture
-    def health_policy(self) -> dict:
-        return json.loads((EXAMPLES_DIR / "health-records.json").read_text())
-
-    async def test_health_policy_valid_request(
-        self, checker: PolicyChecker, health_policy: dict
-    ) -> None:
-        await checker.load_policy("health", health_policy)
+    async def test_health_policy_valid_request(self, checker: PolicyChecker) -> None:
+        await checker.load_policy("health", HEALTH_POLICY_FIXTURE)
         ctx = RequestContext(
             identity=RequestIdentity(type=IdentityType.EPHEMERAL_REQUIRED, did="did:key:z123"),
             proofs=[AvailableProof(type=ProofType.ZKP, claim="is_licensed_provider")],
@@ -582,10 +613,8 @@ class TestRealPolicyIntegration:
         )
         assert result.allowed is True
 
-    async def test_health_policy_wrong_identity(
-        self, checker: PolicyChecker, health_policy: dict
-    ) -> None:
-        await checker.load_policy("health", health_policy)
+    async def test_health_policy_wrong_identity(self, checker: PolicyChecker) -> None:
+        await checker.load_policy("health", HEALTH_POLICY_FIXTURE)
         ctx = RequestContext(
             identity=RequestIdentity(type=IdentityType.PERSISTENT_ALLOWED),
             proofs=[AvailableProof(type=ProofType.ZKP, claim="is_licensed_provider")],
@@ -596,10 +625,8 @@ class TestRealPolicyIntegration:
         assert result.allowed is False
         assert "Ephemeral" in (result.reason or "")
 
-    async def test_health_policy_missing_proof(
-        self, checker: PolicyChecker, health_policy: dict
-    ) -> None:
-        await checker.load_policy("health", health_policy)
+    async def test_health_policy_missing_proof(self, checker: PolicyChecker) -> None:
+        await checker.load_policy("health", HEALTH_POLICY_FIXTURE)
         ctx = RequestContext(
             identity=RequestIdentity(type=IdentityType.EPHEMERAL_REQUIRED, did="did:key:z123"),
             proofs=[],
@@ -610,10 +637,8 @@ class TestRealPolicyIntegration:
         assert result.allowed is False
         assert "Missing required proof" in (result.reason or "")
 
-    async def test_health_policy_vaccination_needs_payment(
-        self, checker: PolicyChecker, health_policy: dict
-    ) -> None:
-        await checker.load_policy("health", health_policy)
+    async def test_health_policy_vaccination_needs_payment(self, checker: PolicyChecker) -> None:
+        await checker.load_policy("health", HEALTH_POLICY_FIXTURE)
         ctx = RequestContext(
             identity=RequestIdentity(type=IdentityType.EPHEMERAL_REQUIRED, did="did:key:z123"),
             proofs=[AvailableProof(type=ProofType.ZKP, claim="has_vaccination")],

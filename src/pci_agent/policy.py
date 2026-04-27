@@ -92,12 +92,19 @@ class PolicyChecker:
         rule = max(matching_rules, key=lambda r: len(r.context_scope))
 
         if request_context is None:
+            if self._has_effective_conditions(rule.conditions):
+                return PolicyCheckResult(
+                    allowed=False,
+                    reason=f"Rule '{rule.id}' requires request context for evaluation",
+                    policy_id=policy_id,
+                    matched_rule_id=rule.id,
+                    required_conditions=rule.conditions,
+                )
             return PolicyCheckResult(
-                allowed=False,
-                reason=f"Rule '{rule.id}' requires request context for evaluation",
+                allowed=True,
+                reason="Rule matched with no effective conditions",
                 policy_id=policy_id,
                 matched_rule_id=rule.id,
-                required_conditions=rule.conditions,
             )
 
         return self._evaluate_conditions(rule, policy_id, request_context)
@@ -105,6 +112,19 @@ class PolicyChecker:
     async def list_policies(self) -> list[str]:
         """List all loaded policy IDs"""
         return list(self._policies.keys())
+
+    @staticmethod
+    def _has_effective_conditions(conditions: Conditions) -> bool:
+        """Check if a rule's conditions require any actual evaluation."""
+        if conditions.identity is not None and conditions.identity.type != IdentityType.ANY:
+            return True
+        if conditions.proofs:
+            return True
+        if conditions.retention is not None:
+            return True
+        if conditions.derivatives is not None:
+            return True
+        return conditions.payment is not None
 
     @staticmethod
     def _find_matching_rules(policy: SPALPolicy, context_scope: str) -> list[AccessRule]:
