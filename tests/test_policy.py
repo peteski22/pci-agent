@@ -19,8 +19,7 @@ from pci_agent.spal import (
 )
 
 EXAMPLES_DIR = (
-    Path(__file__).resolve().parents[2]
-    / "pci-spec" / "schemas" / "spal" / "v1.0" / "examples"
+    Path(__file__).resolve().parents[2] / "pci-spec" / "schemas" / "spal" / "v1.0" / "examples"
 )
 
 
@@ -84,32 +83,38 @@ class TestSPALModelParsing:
             SPALPolicy.model_validate({"version": "1.0"})
 
     def test_linkage_string_coercion_forbidden(self) -> None:
-        req = IdentityRequirement.model_validate({
-            "type": "ephemeral_required",
-            "linkage": "forbidden",
-        })
+        req = IdentityRequirement.model_validate(
+            {
+                "type": "ephemeral_required",
+                "linkage": "forbidden",
+            }
+        )
         assert isinstance(req.linkage, IdentityLinkage)
         assert req.linkage.ephemeral_required is True
         assert req.linkage.proof_of_root_allowed is False
 
     def test_linkage_string_coercion_allowed(self) -> None:
-        req = IdentityRequirement.model_validate({
-            "type": "any",
-            "linkage": "allowed",
-        })
+        req = IdentityRequirement.model_validate(
+            {
+                "type": "any",
+                "linkage": "allowed",
+            }
+        )
         assert isinstance(req.linkage, IdentityLinkage)
         assert req.linkage.ephemeral_required is False
         assert req.linkage.proof_of_root_allowed is True
 
     def test_linkage_object_passthrough(self) -> None:
-        req = IdentityRequirement.model_validate({
-            "type": "ephemeral_required",
-            "linkage": {
-                "ephemeral_required": True,
-                "proof_of_root_allowed": False,
-                "zk_continuity_allowed": True,
-            },
-        })
+        req = IdentityRequirement.model_validate(
+            {
+                "type": "ephemeral_required",
+                "linkage": {
+                    "ephemeral_required": True,
+                    "proof_of_root_allowed": False,
+                    "zk_continuity_allowed": True,
+                },
+            }
+        )
         assert isinstance(req.linkage, IdentityLinkage)
         assert req.linkage.zk_continuity_allowed is True
 
@@ -138,52 +143,78 @@ class TestScopeMatching:
         return PolicyChecker()
 
     async def test_exact_scope_match(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(scope="medical/diagnosis_codes"),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(scope="medical/diagnosis_codes"),
+                ]
+            ),
+        )
         result = await checker.check("p", "query", context_scope="medical/diagnosis_codes")
         assert result.matched_rule_id == "rule-1"
 
     async def test_sub_scope_match(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(scope="medical/diagnosis_codes"),
-        ]))
-        result = await checker.check(
-            "p", "query", context_scope="medical/diagnosis_codes/icd10"
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(scope="medical/diagnosis_codes"),
+                ]
+            ),
         )
+        result = await checker.check("p", "query", context_scope="medical/diagnosis_codes/icd10")
         assert result.matched_rule_id == "rule-1"
 
     async def test_no_match_for_parent_scope(self, checker: PolicyChecker) -> None:
         """A broader request should not match a more specific rule."""
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(scope="medical/diagnosis_codes"),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(scope="medical/diagnosis_codes"),
+                ]
+            ),
+        )
         result = await checker.check("p", "query", context_scope="medical")
         assert result.allowed is True
         assert "No rules govern" in (result.reason or "")
 
     async def test_no_match_for_unrelated_scope(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(scope="medical/diagnosis_codes"),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(scope="medical/diagnosis_codes"),
+                ]
+            ),
+        )
         result = await checker.check("p", "query", context_scope="financial/transactions")
         assert result.allowed is True
 
     async def test_most_specific_rule_wins(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(rule_id="broad", scope="medical"),
-            _rule_dict(rule_id="specific", scope="medical/diagnosis_codes"),
-        ]))
-        result = await checker.check(
-            "p", "query", context_scope="medical/diagnosis_codes"
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(rule_id="broad", scope="medical"),
+                    _rule_dict(rule_id="specific", scope="medical/diagnosis_codes"),
+                ]
+            ),
         )
+        result = await checker.check("p", "query", context_scope="medical/diagnosis_codes")
         assert result.matched_rule_id == "specific"
 
     async def test_no_partial_prefix_match(self, checker: PolicyChecker) -> None:
         """'medical/diag' should not match 'medical/diagnosis_codes'."""
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(scope="medical/diagnosis_codes"),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(scope="medical/diagnosis_codes"),
+                ]
+            ),
+        )
         result = await checker.check("p", "query", context_scope="medical/diag")
         assert result.allowed is True
         assert "No rules govern" in (result.reason or "")
@@ -200,12 +231,19 @@ class TestConditionEvaluation:
     async def test_no_request_context_returns_required_conditions(
         self, checker: PolicyChecker
     ) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={
-                "identity": {"type": "ephemeral_required"},
-                "proofs": [{"type": "zkp", "claim": "age_over_18"}],
-            }),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(
+                        conditions={
+                            "identity": {"type": "ephemeral_required"},
+                            "proofs": [{"type": "zkp", "claim": "age_over_18"}],
+                        }
+                    ),
+                ]
+            ),
+        )
         result = await checker.check("p", "query", context_scope="test/data")
         assert result.allowed is False
         assert "requires request context" in (result.reason or "")
@@ -214,12 +252,15 @@ class TestConditionEvaluation:
 
     # --- Identity ---
 
-    async def test_ephemeral_identity_required_and_provided(
-        self, checker: PolicyChecker
-    ) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={"identity": {"type": "ephemeral_required"}}),
-        ]))
+    async def test_ephemeral_identity_required_and_provided(self, checker: PolicyChecker) -> None:
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(conditions={"identity": {"type": "ephemeral_required"}}),
+                ]
+            ),
+        )
         ctx = RequestContext(
             identity=RequestIdentity(type=IdentityType.EPHEMERAL_REQUIRED, did="did:key:z123")
         )
@@ -229,68 +270,96 @@ class TestConditionEvaluation:
     async def test_ephemeral_identity_required_but_persistent_given(
         self, checker: PolicyChecker
     ) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={"identity": {"type": "ephemeral_required"}}),
-        ]))
-        ctx = RequestContext(
-            identity=RequestIdentity(type=IdentityType.PERSISTENT_ALLOWED)
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(conditions={"identity": {"type": "ephemeral_required"}}),
+                ]
+            ),
         )
+        ctx = RequestContext(identity=RequestIdentity(type=IdentityType.PERSISTENT_ALLOWED))
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is False
         assert "Ephemeral identity required" in (result.reason or "")
 
-    async def test_ephemeral_identity_required_but_none_given(
-        self, checker: PolicyChecker
-    ) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={"identity": {"type": "ephemeral_required"}}),
-        ]))
+    async def test_ephemeral_identity_required_but_none_given(self, checker: PolicyChecker) -> None:
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(conditions={"identity": {"type": "ephemeral_required"}}),
+                ]
+            ),
+        )
         ctx = RequestContext()
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is False
         assert "none provided" in (result.reason or "")
 
     async def test_any_identity_type_allows_all(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={"identity": {"type": "any"}}),
-        ]))
-        ctx = RequestContext(
-            identity=RequestIdentity(type=IdentityType.PERSISTENT_ALLOWED)
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(conditions={"identity": {"type": "any"}}),
+                ]
+            ),
         )
+        ctx = RequestContext(identity=RequestIdentity(type=IdentityType.PERSISTENT_ALLOWED))
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is True
 
     # --- Proofs ---
 
     async def test_required_proof_provided(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={
-                "proofs": [{"type": "zkp", "claim": "age_over_18"}],
-            }),
-        ]))
-        ctx = RequestContext(
-            proofs=[AvailableProof(type=ProofType.ZKP, claim="age_over_18")]
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(
+                        conditions={
+                            "proofs": [{"type": "zkp", "claim": "age_over_18"}],
+                        }
+                    ),
+                ]
+            ),
         )
+        ctx = RequestContext(proofs=[AvailableProof(type=ProofType.ZKP, claim="age_over_18")])
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is True
 
     async def test_required_proof_missing(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={
-                "proofs": [{"type": "zkp", "claim": "age_over_18"}],
-            }),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(
+                        conditions={
+                            "proofs": [{"type": "zkp", "claim": "age_over_18"}],
+                        }
+                    ),
+                ]
+            ),
+        )
         ctx = RequestContext(proofs=[])
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is False
         assert "Missing required proof" in (result.reason or "")
 
     async def test_wrong_proof_type_denied(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={
-                "proofs": [{"type": "zkp", "claim": "age_over_18"}],
-            }),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(
+                        conditions={
+                            "proofs": [{"type": "zkp", "claim": "age_over_18"}],
+                        }
+                    ),
+                ]
+            ),
+        )
         ctx = RequestContext(
             proofs=[AvailableProof(type=ProofType.ATTESTATION, claim="age_over_18")]
         )
@@ -300,46 +369,78 @@ class TestConditionEvaluation:
     # --- Derivatives ---
 
     async def test_training_forbidden_and_requested(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={
-                "derivatives": _derivs(aggregation="allowed"),
-            }),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(
+                        conditions={
+                            "derivatives": _derivs(aggregation="allowed"),
+                        }
+                    ),
+                ]
+            ),
+        )
         ctx = RequestContext(intended_use=IntendedUse(training=True))
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is False
         assert "Training" in (result.reason or "")
 
     async def test_aggregation_forbidden_and_requested(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={
-                "derivatives": _derivs(
-                    training="allowed", aggregation="forbidden", resale="allowed",
-                ),
-            }),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(
+                        conditions={
+                            "derivatives": _derivs(
+                                training="allowed",
+                                aggregation="forbidden",
+                                resale="allowed",
+                            ),
+                        }
+                    ),
+                ]
+            ),
+        )
         ctx = RequestContext(intended_use=IntendedUse(aggregation=True))
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is False
         assert "Aggregation" in (result.reason or "")
 
     async def test_resale_forbidden_and_requested(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={
-                "derivatives": _derivs(training="allowed", aggregation="allowed"),
-            }),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(
+                        conditions={
+                            "derivatives": _derivs(training="allowed", aggregation="allowed"),
+                        }
+                    ),
+                ]
+            ),
+        )
         ctx = RequestContext(intended_use=IntendedUse(resale=True))
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is False
         assert "Resale" in (result.reason or "")
 
     async def test_derivatives_allowed(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={
-                "derivatives": _derivs(training="allowed", aggregation="allowed", resale="allowed"),
-            }),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(
+                        conditions={
+                            "derivatives": _derivs(
+                                training="allowed", aggregation="allowed", resale="allowed"
+                            ),
+                        }
+                    ),
+                ]
+            ),
+        )
         ctx = RequestContext(intended_use=IntendedUse(training=True, aggregation=True, resale=True))
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is True
@@ -347,26 +448,41 @@ class TestConditionEvaluation:
     # --- Retention ---
 
     async def test_retention_within_limit(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={"retention": {"max_seconds": 3600, "audit_log": True}}),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(conditions={"retention": {"max_seconds": 3600, "audit_log": True}}),
+                ]
+            ),
+        )
         ctx = RequestContext(offered_retention_seconds=1800)
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is True
 
     async def test_retention_exceeds_limit(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={"retention": {"max_seconds": 3600, "audit_log": True}}),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(conditions={"retention": {"max_seconds": 3600, "audit_log": True}}),
+                ]
+            ),
+        )
         ctx = RequestContext(offered_retention_seconds=7200)
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is False
         assert "retention" in (result.reason or "").lower()
 
     async def test_immediate_deletion_required(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={"retention": {"max_seconds": 0}}),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(conditions={"retention": {"max_seconds": 0}}),
+                ]
+            ),
+        )
         ctx = RequestContext(offered_retention_seconds=1)
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is False
@@ -374,21 +490,35 @@ class TestConditionEvaluation:
     # --- Payment ---
 
     async def test_payment_required_and_offered(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={
-                "payment": {"protocol": "x402", "amount": 100, "currency": "sats"},
-            }),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(
+                        conditions={
+                            "payment": {"protocol": "x402", "amount": 100, "currency": "sats"},
+                        }
+                    ),
+                ]
+            ),
+        )
         ctx = RequestContext(payment_offered=True)
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is True
 
     async def test_payment_required_but_not_offered(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={
-                "payment": {"protocol": "x402", "amount": 100, "currency": "sats"},
-            }),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(
+                        conditions={
+                            "payment": {"protocol": "x402", "amount": 100, "currency": "sats"},
+                        }
+                    ),
+                ]
+            ),
+        )
         ctx = RequestContext(payment_offered=False)
         result = await checker.check("p", "query", context_scope="test/data", request_context=ctx)
         assert result.allowed is False
@@ -397,15 +527,22 @@ class TestConditionEvaluation:
     # --- All conditions combined ---
 
     async def test_all_conditions_met(self, checker: PolicyChecker) -> None:
-        await checker.load_policy("p", _policy_dict([
-            _rule_dict(conditions={
-                "identity": {"type": "ephemeral_required"},
-                "proofs": [{"type": "zkp", "claim": "age_over_18"}],
-                "retention": {"max_seconds": 3600},
-                "derivatives": _derivs(aggregation="allowed"),
-                "payment": {"protocol": "x402", "amount": 100, "currency": "sats"},
-            }),
-        ]))
+        await checker.load_policy(
+            "p",
+            _policy_dict(
+                [
+                    _rule_dict(
+                        conditions={
+                            "identity": {"type": "ephemeral_required"},
+                            "proofs": [{"type": "zkp", "claim": "age_over_18"}],
+                            "retention": {"max_seconds": 3600},
+                            "derivatives": _derivs(aggregation="allowed"),
+                            "payment": {"protocol": "x402", "amount": 100, "currency": "sats"},
+                        }
+                    ),
+                ]
+            ),
+        )
         ctx = RequestContext(
             identity=RequestIdentity(type=IdentityType.EPHEMERAL_REQUIRED, did="did:key:z123"),
             proofs=[AvailableProof(type=ProofType.ZKP, claim="age_over_18")],
@@ -484,7 +621,8 @@ class TestRealPolicyIntegration:
             payment_offered=False,
         )
         result = await checker.check(
-            "health", "query",
+            "health",
+            "query",
             context_scope="medical/immunization/status",
             request_context=ctx,
         )

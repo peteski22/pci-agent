@@ -132,12 +132,15 @@ class TestAgentWithLLM:
         """Test that ImportError from missing llama-cpp-python propagates"""
         agent = Agent(llm_config)
 
-        with patch.object(
-            LocalLLM,
-            "load",
-            new_callable=AsyncMock,
-            side_effect=ImportError("llama-cpp-python not installed"),
-        ), pytest.raises(ImportError, match="llama-cpp-python"):
+        with (
+            patch.object(
+                LocalLLM,
+                "load",
+                new_callable=AsyncMock,
+                side_effect=ImportError("llama-cpp-python not installed"),
+            ),
+            pytest.raises(ImportError, match="llama-cpp-python"),
+        ):
             await agent.initialize()
 
 

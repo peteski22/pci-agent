@@ -111,9 +111,8 @@ class PolicyChecker:
         """Find rules whose context_scope covers the requested scope."""
         matches: list[AccessRule] = []
         for rule in policy.rules:
-            if (
-                context_scope == rule.context_scope
-                or context_scope.startswith(rule.context_scope + "/")
+            if context_scope == rule.context_scope or context_scope.startswith(
+                rule.context_scope + "/"
             ):
                 matches.append(rule)
         return matches
@@ -141,8 +140,7 @@ class PolicyChecker:
                 if ctx.identity.type != IdentityType.EPHEMERAL_REQUIRED:
                     return PolicyCheckResult(
                         allowed=False,
-                        reason="Ephemeral identity required but got "
-                        f"'{ctx.identity.type}'",
+                        reason=f"Ephemeral identity required but got '{ctx.identity.type}'",
                         policy_id=policy_id,
                         matched_rule_id=rule.id,
                     )
@@ -153,8 +151,7 @@ class PolicyChecker:
             if (proof_req.type, proof_req.claim) not in available_claims:
                 return PolicyCheckResult(
                     allowed=False,
-                    reason=f"Missing required proof: {proof_req.type} for "
-                    f"'{proof_req.claim}'",
+                    reason=f"Missing required proof: {proof_req.type} for '{proof_req.claim}'",
                     policy_id=policy_id,
                     matched_rule_id=rule.id,
                 )
@@ -192,13 +189,13 @@ class PolicyChecker:
             and ctx.offered_retention_seconds is not None
             and ctx.offered_retention_seconds > conditions.retention.max_seconds
         ):
-                return PolicyCheckResult(
-                    allowed=False,
-                    reason=f"Offered retention ({ctx.offered_retention_seconds}s) exceeds "
-                    f"maximum ({conditions.retention.max_seconds}s)",
-                    policy_id=policy_id,
-                    matched_rule_id=rule.id,
-                )
+            return PolicyCheckResult(
+                allowed=False,
+                reason=f"Offered retention ({ctx.offered_retention_seconds}s) exceeds "
+                f"maximum ({conditions.retention.max_seconds}s)",
+                policy_id=policy_id,
+                matched_rule_id=rule.id,
+            )
 
         # Payment check
         if conditions.payment is not None and not ctx.payment_offered:
