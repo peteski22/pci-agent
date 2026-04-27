@@ -72,7 +72,9 @@ class Agent:
 
         # Check policy if specified
         if policy_id:
-            policy_result = await self._policy_checker.check(policy_id, query)
+            policy_result = await self._policy_checker.check(
+                policy_id, query, context_scope=context_scope
+            )
             if not policy_result.allowed:
                 return AgentResponse(
                     content=f"Request blocked by policy: {policy_result.reason}",

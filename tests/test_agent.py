@@ -132,13 +132,33 @@ class TestAgentWithLLM:
         """Test that ImportError from missing llama-cpp-python propagates"""
         agent = Agent(llm_config)
 
-        with patch.object(
-            LocalLLM,
-            "load",
-            new_callable=AsyncMock,
-            side_effect=ImportError("llama-cpp-python not installed"),
-        ), pytest.raises(ImportError, match="llama-cpp-python"):
+        with (
+            patch.object(
+                LocalLLM,
+                "load",
+                new_callable=AsyncMock,
+                side_effect=ImportError("llama-cpp-python not installed"),
+            ),
+            pytest.raises(ImportError, match="llama-cpp-python"),
+        ):
             await agent.initialize()
+
+
+def _minimal_policy(policy_id: str = "test-policy", name: str = "Test Policy") -> dict:
+    """Create a minimal valid S-PAL policy dict for testing."""
+    return {
+        "version": "1.0",
+        "id": policy_id,
+        "name": name,
+        "owner": "did:pci:cardano:addr1test",
+        "rules": [
+            {
+                "id": "rule-1",
+                "context_scope": "test/data",
+                "conditions": {},
+            }
+        ],
+    }
 
 
 class TestPolicyChecker:
@@ -156,21 +176,15 @@ class TestPolicyChecker:
 
     async def test_load_and_check_policy(self, checker: PolicyChecker) -> None:
         """Test loading and checking a policy"""
-        policy_data = {
-            "version": "1.0",
-            "id": "test-policy",
-            "name": "Test Policy",
-            "rules": [],
-        }
-        await checker.load_policy("test-policy", policy_data)
+        await checker.load_policy("test-policy", _minimal_policy())
 
         result = await checker.check("test-policy", "test query")
         assert result.policy_id == "test-policy"
 
     async def test_list_policies(self, checker: PolicyChecker) -> None:
         """Test listing loaded policies"""
-        await checker.load_policy("policy-1", {})
-        await checker.load_policy("policy-2", {})
+        await checker.load_policy("policy-1", _minimal_policy("p1", "Policy 1"))
+        await checker.load_policy("policy-2", _minimal_policy("p2", "Policy 2"))
 
         policies = await checker.list_policies()
         assert "policy-1" in policies
