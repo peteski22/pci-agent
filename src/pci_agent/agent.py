@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from pci_agent.config import AgentConfig
-from pci_agent.context import ContextClient
+from pci_agent.context import ContextClient, ContextItem
+from pci_agent.models.local_llm import LocalLLM
 from pci_agent.policy import PolicyChecker
 
 
@@ -30,7 +31,7 @@ class Agent:
 
     def __init__(self, config: AgentConfig | None = None) -> None:
         self.config = config or AgentConfig()
-        self._llm: object | None = None
+        self._llm: LocalLLM | None = None
         self._context_client = ContextClient(self.config.context)
         self._policy_checker = PolicyChecker()
         self._initialized = False
@@ -97,28 +98,45 @@ class Agent:
             timestamp=datetime.now(),
         )
 
-    async def _load_llm(self) -> object:
+    async def _load_llm(self) -> LocalLLM:
         """Load the local language model"""
-        # TODO: Integrate with llama-cpp-python
-        # This is a placeholder for the actual implementation
-        return None
+        llm = LocalLLM(self.config.llm)
+        await llm.load()
+        return llm
 
     async def _generate_response(
         self,
         query: str,
-        context_items: list,
+        context_items: list[ContextItem],
     ) -> str:
         """Generate a response using the LLM"""
         if self._llm is None:
-            # Fallback when no LLM is loaded
             context_summary = ", ".join(item.id for item in context_items)
             return f"[No LLM loaded] Query: {query}, Context: {context_summary}"
 
-        # TODO: Implement actual LLM inference
-        return f"Response to: {query}"
+        prompt = self._build_prompt(query, context_items)
+        response = await self._llm.generate(prompt)
+        return response.text
+
+    @staticmethod
+    def _build_prompt(query: str, context_items: list[ContextItem]) -> str:
+        """Build a prompt from the query and retrieved context"""
+        parts: list[str] = []
+        if context_items:
+            parts.append("Context:")
+            for item in context_items:
+                parts.append(f"- {item.content}")
+            parts.append("")
+        parts.append(f"Question: {query}")
+        parts.append("Answer:")
+        return "\n".join(parts)
 
     async def close(self) -> None:
         """Cleanup resources"""
         await self._context_client.disconnect()
-        self._llm = None
+        if self._llm is not None:
+            try:
+                await self._llm.unload()
+            finally:
+                self._llm = None
         self._initialized = False
