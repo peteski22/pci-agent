@@ -57,3 +57,9 @@ Thumbs.db
 models/
 *.gguf
 *.bin
+
+# Claude Code / pragma (keep local, do not commit)
+CLAUDE.local.md
+CLAUDE.md
+AGENTS.md
+.claude/
