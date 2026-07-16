@@ -68,6 +68,48 @@ The agent works with GGUF-format models:
 | Mistral | 7B | 8GB | Better |
 | Llama 3.1 | 8B | 10GB | Best |
 
+## Local Inference
+
+Two backends are supported behind a single protocol:
+
+- **Ollama** (recommended) — talks HTTP to a local `ollama serve` daemon
+  (default `http://127.0.0.1:11434`). Cross-platform, transparent MLX on
+  Apple Silicon, and supports JSON-schema constrained output via Ollama's
+  `format` parameter — used by the S-PAL flow to synthesise validated
+  `RequestContext` proposals.
+- **llama-cpp-python** (in-process, "no daemon") — kept as a fallback for
+  single-executable demos. Requires the optional `llm` extra:
+  `uv sync --extra llm`.
+
+Named model tiers (Ollama backend):
+
+| Tier | Model tag | Notes |
+|---|---|---|
+| `default` | `qwen3.6:27b` | Primary tier for laptop / dev boxes with 16+ GB. |
+| `small` | `phi4-mini:3.8b` | Emergency fallback for <=8 GB RAM boxes. |
+| `on-device` | `bonsai:27b-q1_0` | Bonsai-27B 1-bit (Q1_0, mainlined into `llama.cpp`). NOT the ternary Q2_0 variant, which currently needs the PrismML fork. |
+
+Basic usage:
+
+```python
+from pci_agent import Agent, AgentConfig, LLMConfig
+
+agent = Agent(AgentConfig(llm=LLMConfig(backend="ollama", ollama_tier="default")))
+await agent.initialize()
+
+# S-PAL wiring: synthesise a RequestContext for the policy checker
+request_ctx = await agent.propose_request_context(
+    "Business wants age >= 18 verification for alcohol purchase."
+)
+```
+
+Integration smoke tests against a live Ollama daemon:
+
+```bash
+ollama pull phi4-mini:3.8b
+PCI_OLLAMA_MODEL=phi4-mini:3.8b uv run pytest -m ollama
+```
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -75,6 +117,12 @@ The agent works with GGUF-format models:
 | `PORT` | `8082` | HTTP server port |
 | `ZKP_SERVICE_URL` | `http://localhost:8084` | ZKP service endpoint |
 | `CARDANO_API_URL` | `http://localhost:8080` | Cardano devnet API endpoint |
+| `PCI_LLM_BACKEND` | `llamacpp` | `ollama` or `llamacpp` |
+| `PCI_LLM_TIER` | `default` | `default`, `small`, or `on-device` |
+| `PCI_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama daemon base URL |
+| `PCI_OLLAMA_MODEL` | _(from tier)_ | Explicit Ollama model tag override |
+| `PCI_OLLAMA_TIMEOUT` | `120.0` | Per-request HTTP timeout (seconds) |
+| `PCI_LLM_MODEL_PATH` | _(unset)_ | GGUF path for the llama-cpp backend |
 
 ## Development
 
