@@ -58,8 +58,21 @@ class LocalLLM:
         self._model = await loop.run_in_executor(None, _build)
 
     async def unload(self) -> None:
-        """Drop the model reference so its native resources can be freed."""
-        self._model = None
+        """Release native model resources.
+
+        ``llama-cpp-python`` >= 0.3.0 exposes ``Llama.close()`` for
+        deterministic cleanup of native CPU/GPU allocations; earlier
+        versions rely on garbage collection, so we tolerate a missing
+        ``close`` attribute.
+        """
+        model, self._model = self._model, None
+        if model is None:
+            return
+        close = getattr(model, "close", None)
+        if close is None:
+            return
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, close)
 
     async def aclose(self) -> None:
         """Alias for :meth:`unload` matching the ``LLMBackend`` protocol."""
@@ -78,9 +91,7 @@ class LocalLLM:
 
         loop = asyncio.get_running_loop()
         effective_max_tokens = max_tokens if max_tokens is not None else self.config.max_tokens
-        effective_temperature = (
-            temperature if temperature is not None else self.config.temperature
-        )
+        effective_temperature = temperature if temperature is not None else self.config.temperature
 
         def _run() -> Any:
             return self._model(

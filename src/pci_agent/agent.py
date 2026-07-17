@@ -68,8 +68,13 @@ class Agent:
         elif self.config.llm.backend == "ollama":
             self._ollama_backend = self._build_ollama_backend()
 
-        # Connect to context store
-        await self._context_client.connect()
+        try:
+            await self._context_client.connect()
+        except BaseException:
+            # Release any backend resources we just acquired so a retry can
+            # start from a clean slate; ``_initialized`` stays False.
+            await self._release_backend()
+            raise
 
         self._initialized = True
 
@@ -205,8 +210,22 @@ class Agent:
         return "\n".join(parts)
 
     async def close(self) -> None:
-        """Cleanup resources"""
-        await self._context_client.disconnect()
+        """Cleanup resources.
+
+        Runs context-store disconnect and backend release regardless of
+        intermediate failures — a raising :meth:`ContextClient.disconnect`
+        must not leak the LLM backend or leave stale lifecycle state.
+        """
+        try:
+            await self._context_client.disconnect()
+        finally:
+            try:
+                await self._release_backend()
+            finally:
+                self._initialized = False
+
+    async def _release_backend(self) -> None:
+        """Release whichever backend is currently loaded, if any."""
         if self._llm is not None:
             try:
                 await self._llm.unload()
@@ -217,4 +236,3 @@ class Agent:
                 await self._ollama_backend.aclose()
             finally:
                 self._ollama_backend = None
-        self._initialized = False

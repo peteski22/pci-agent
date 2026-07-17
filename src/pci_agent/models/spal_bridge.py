@@ -13,6 +13,8 @@ against the pydantic ``RequestContext`` model before returning.
 
 from __future__ import annotations
 
+import json
+
 from pydantic import ValidationError
 
 from pci_agent.models.ollama import OllamaBackend, OllamaSchemaError
@@ -62,7 +64,7 @@ async def propose_request_context(
     framing = system_prompt if system_prompt is not None else _DEFAULT_SYSTEM_PROMPT
     full_prompt = (
         f"{framing}\n\n"
-        f"Schema (JSON):\n{schema}\n\n"
+        f"Schema (JSON):\n{json.dumps(schema)}\n\n"
         f"Business request:\n{prompt}\n\n"
         "Respond with the JSON object only."
     )
@@ -75,6 +77,4 @@ async def propose_request_context(
     try:
         return RequestContext.model_validate(response.data)
     except ValidationError as exc:
-        raise OllamaSchemaError(
-            f"Model produced an invalid RequestContext: {exc}"
-        ) from exc
+        raise OllamaSchemaError(f"Model produced an invalid RequestContext: {exc}") from exc

@@ -10,8 +10,7 @@ output conformant.
 Environment variables (12-factor style, matching ``__main__.py``):
 
 - ``PCI_LLM_BACKEND`` — ``ollama`` (default) or ``llamacpp``.
-- ``PCI_LLM_TIER`` — ``default`` (Qwen3.6-27B), ``small`` (Phi-4-mini) or
-  ``on-device`` (Bonsai-27B 1-bit).
+- ``PCI_LLM_TIER`` — ``default`` (Qwen3.6-27B) or ``small`` (Phi-4-mini).
 - ``PCI_OLLAMA_MODEL`` — explicit model tag; overrides tier when set.
 - ``PCI_OLLAMA_URL`` — base URL of the Ollama daemon.
 - ``PCI_OLLAMA_TIMEOUT`` — per-request timeout in seconds (float).
@@ -20,6 +19,7 @@ Environment variables (12-factor style, matching ``__main__.py``):
 from __future__ import annotations
 
 import json
+import math
 import os
 from types import TracebackType
 from typing import Any
@@ -34,14 +34,14 @@ DEFAULT_MAX_RETRIES = 2
 
 # Named model tiers.
 #
-# ``on-device`` intentionally selects the 1-bit Bonsai-27B tag: the 1-bit
-# (Q1_0) kernels are mainlined into upstream llama.cpp and load through
-# Ollama's bundled build. The ternary (Q2_0) variant currently requires the
-# PrismML llama.cpp fork and is *not* the default — see the runtime report.
+# pci-agent targets desktop and server runtimes (see ADR-006 in pci-docs).
+# A dedicated on-device / mobile tier is deferred: stock Ollama's bundled
+# llama.cpp does not yet load the Q1_0 quantisation that on-device models
+# such as Bonsai-27B ship in (upstream: ollama/ollama#15359), and the mobile
+# story lives in a separate native client rather than in this package.
 MODEL_TIERS: dict[str, str] = {
     "default": "qwen3.6:27b",
     "small": "phi4-mini:3.8b",
-    "on-device": "bonsai:27b-q1_0",
 }
 DEFAULT_TIER = "default"
 
@@ -134,11 +134,11 @@ class OllamaBackend:
         """Build a backend using ``PCI_OLLAMA_*`` / ``PCI_LLM_TIER`` env vars."""
         base_url = os.environ.get("PCI_OLLAMA_URL", DEFAULT_OLLAMA_URL)
         try:
-            timeout = float(
-                os.environ.get("PCI_OLLAMA_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS))
-            )
+            timeout = float(os.environ.get("PCI_OLLAMA_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS)))
         except ValueError as exc:
             raise ValueError("PCI_OLLAMA_TIMEOUT must be a float value") from exc
+        if not math.isfinite(timeout) or timeout <= 0.0:
+            raise ValueError("PCI_OLLAMA_TIMEOUT must be a positive finite value")
 
         return cls(
             base_url=base_url,
@@ -238,9 +238,7 @@ class OllamaBackend:
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise OllamaSchemaError(
-                f"Model output was not valid JSON: {exc.msg}"
-            ) from exc
+            raise OllamaSchemaError(f"Model output was not valid JSON: {exc.msg}") from exc
         if not isinstance(data, dict):
             raise OllamaSchemaError(
                 f"Model output must decode to a JSON object, got {type(data).__name__}"
@@ -304,16 +302,12 @@ class OllamaBackend:
             except httpx.HTTPError as exc:
                 last_exc = exc
                 if attempt == self.max_retries:
-                    raise OllamaTransportError(
-                        f"Ollama transport error: {exc}"
-                    ) from exc
+                    raise OllamaTransportError(f"Ollama transport error: {exc}") from exc
                 continue
 
             if response.status_code >= 500 and attempt < self.max_retries:
                 # Retry transient 5xx once
-                last_exc = OllamaTransportError(
-                    f"Ollama returned {response.status_code}"
-                )
+                last_exc = OllamaTransportError(f"Ollama returned {response.status_code}")
                 continue
             if response.status_code != 200:
                 raise OllamaTransportError(
@@ -323,9 +317,7 @@ class OllamaBackend:
             try:
                 data = response.json()
             except ValueError as exc:
-                raise OllamaTransportError(
-                    "Ollama response was not valid JSON"
-                ) from exc
+                raise OllamaTransportError("Ollama response was not valid JSON") from exc
             if not isinstance(data, dict):
                 raise OllamaTransportError(
                     f"Ollama response must be an object, got {type(data).__name__}"

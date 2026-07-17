@@ -9,6 +9,7 @@ process start.
 
 from __future__ import annotations
 
+import math
 import os
 from typing import Literal
 
@@ -37,7 +38,7 @@ class LLMConfig(BaseModel):
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_tier: str = "default"
     ollama_model: str | None = None
-    ollama_timeout_seconds: float = Field(default=120.0, gt=0.0)
+    ollama_timeout_seconds: float = Field(default=120.0, gt=0.0, allow_inf_nan=False)
 
     # --- Shared knobs -------------------------------------------------
     context_length: int = Field(default=4096, ge=512, le=1_000_000)
@@ -83,6 +84,8 @@ class AgentConfig(BaseModel):
                 timeout_seconds = float(timeout_env)
             except ValueError as exc:
                 raise ValueError("PCI_OLLAMA_TIMEOUT must be a float value") from exc
+            if not math.isfinite(timeout_seconds):
+                raise ValueError("PCI_OLLAMA_TIMEOUT must be a finite value")
 
         return cls(
             llm=LLMConfig(

@@ -45,11 +45,11 @@ class TestTierResolution:
         assert resolve_model_for_tier("default") == MODEL_TIERS["default"]
         assert MODEL_TIERS["default"].startswith("qwen3.6")
 
-    def test_on_device_is_1bit_bonsai(self) -> None:
-        """On-device MUST be the 1-bit Bonsai (mainlined) not ternary Q2_0."""
-        tag = resolve_model_for_tier("on-device")
-        assert "bonsai" in tag.lower()
-        assert "q1_0" in tag.lower()
+    def test_on_device_tier_is_not_exposed(self) -> None:
+        """No on-device tier: mobile story lives in a separate client (ADR-006)."""
+        assert "on-device" not in MODEL_TIERS
+        with pytest.raises(ValueError, match="Unknown LLM tier"):
+            resolve_model_for_tier("on-device")
 
     def test_small_tier_resolves_to_phi(self) -> None:
         assert "phi" in resolve_model_for_tier("small").lower()
@@ -80,6 +80,12 @@ class TestTierResolution:
     def test_from_env_rejects_bad_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PCI_OLLAMA_TIMEOUT", "not-a-float")
         with pytest.raises(ValueError, match="PCI_OLLAMA_TIMEOUT"):
+            OllamaBackend.from_env()
+
+    def test_from_env_rejects_infinite_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`inf` parses as a valid float but disables the httpx deadline."""
+        monkeypatch.setenv("PCI_OLLAMA_TIMEOUT", "inf")
+        with pytest.raises(ValueError, match="finite"):
             OllamaBackend.from_env()
 
 

@@ -87,7 +87,8 @@ Named model tiers (Ollama backend):
 |---|---|---|
 | `default` | `qwen3.6:27b` | Primary tier for laptop / dev boxes with 16+ GB. |
 | `small` | `phi4-mini:3.8b` | Emergency fallback for <=8 GB RAM boxes. |
-| `on-device` | `bonsai:27b-q1_0` | Bonsai-27B 1-bit (Q1_0, mainlined into `llama.cpp`). NOT the ternary Q2_0 variant, which currently needs the PrismML fork. |
+
+pci-agent targets desktop and server runtimes; the mobile / on-device story lives in a separate native client (see ADR-006 in `pci-docs`). No `on-device` tier is exposed here — stock Ollama's bundled `llama.cpp` does not yet load the Q1_0 quantisation that on-device tiers such as Bonsai-27B ship in ([ollama/ollama#15359](https://github.com/ollama/ollama/issues/15359)).
 
 Basic usage:
 
@@ -96,11 +97,13 @@ from pci_agent import Agent, AgentConfig, LLMConfig
 
 agent = Agent(AgentConfig(llm=LLMConfig(backend="ollama", ollama_tier="default")))
 await agent.initialize()
-
-# S-PAL wiring: synthesise a RequestContext for the policy checker
-request_ctx = await agent.propose_request_context(
-    "Business wants age >= 18 verification for alcohol purchase."
-)
+try:
+    # S-PAL wiring: synthesise a RequestContext for the policy checker
+    request_ctx = await agent.propose_request_context(
+        "Business wants age >= 18 verification for alcohol purchase."
+    )
+finally:
+    await agent.close()
 ```
 
 Integration smoke tests against a live Ollama daemon:
@@ -118,7 +121,7 @@ PCI_OLLAMA_MODEL=phi4-mini:3.8b uv run pytest -m ollama
 | `ZKP_SERVICE_URL` | `http://localhost:8084` | ZKP service endpoint |
 | `CARDANO_API_URL` | `http://localhost:8080` | Cardano devnet API endpoint |
 | `PCI_LLM_BACKEND` | `llamacpp` | `ollama` or `llamacpp` |
-| `PCI_LLM_TIER` | `default` | `default`, `small`, or `on-device` |
+| `PCI_LLM_TIER` | `default` | `default` (Qwen3.6-27B) or `small` (Phi-4-mini) |
 | `PCI_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama daemon base URL |
 | `PCI_OLLAMA_MODEL` | _(from tier)_ | Explicit Ollama model tag override |
 | `PCI_OLLAMA_TIMEOUT` | `120.0` | Per-request HTTP timeout (seconds) |

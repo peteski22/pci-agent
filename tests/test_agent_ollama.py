@@ -120,14 +120,14 @@ class TestAgentPolicyHook:
 class TestAgentConfigFromEnv:
     def test_env_selects_ollama_backend(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PCI_LLM_BACKEND", "ollama")
-        monkeypatch.setenv("PCI_LLM_TIER", "on-device")
+        monkeypatch.setenv("PCI_LLM_TIER", "small")
         monkeypatch.setenv("PCI_OLLAMA_URL", "http://example.internal:11434")
         monkeypatch.delenv("PCI_OLLAMA_MODEL", raising=False)
         monkeypatch.delenv("PCI_OLLAMA_TIMEOUT", raising=False)
 
         cfg = AgentConfig.from_env()
         assert cfg.llm.backend == "ollama"
-        assert cfg.llm.ollama_tier == "on-device"
+        assert cfg.llm.ollama_tier == "small"
         assert cfg.llm.ollama_base_url == "http://example.internal:11434"
 
     def test_env_defaults_to_llamacpp(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -146,3 +146,53 @@ class TestAgentConfigFromEnv:
         monkeypatch.setenv("PCI_LLM_BACKEND", "vllm")
         cfg = AgentConfig.from_env()
         assert cfg.llm.backend == "llamacpp"
+
+    def test_env_timeout_rejects_infinity(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Infinite timeouts disable the httpx deadline; reject at parse time."""
+        monkeypatch.setenv("PCI_OLLAMA_TIMEOUT", "inf")
+        with pytest.raises(ValueError, match="finite"):
+            AgentConfig.from_env()
+
+    def test_llm_config_rejects_infinite_timeout(self) -> None:
+        with pytest.raises(ValueError):
+            LLMConfig(ollama_timeout_seconds=float("inf"))
+
+
+class TestAgentLifecycleSafety:
+    async def test_initialize_releases_backend_on_context_failure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """If context connect() fails, the Ollama backend must not leak."""
+        agent = Agent(AgentConfig(llm=LLMConfig(backend="ollama")))
+
+        async def boom() -> None:
+            raise RuntimeError("context store unavailable")
+
+        monkeypatch.setattr(agent._context_client, "connect", boom)
+
+        with pytest.raises(RuntimeError, match="context store unavailable"):
+            await agent.initialize()
+
+        assert agent._ollama_backend is None
+        assert not agent._initialized
+
+    async def test_close_runs_backend_release_even_if_disconnect_raises(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A failing disconnect() must not skip backend cleanup."""
+        agent = Agent(AgentConfig(llm=LLMConfig(backend="ollama")))
+        await agent.initialize()
+        assert agent._ollama_backend is not None
+
+        async def boom() -> None:
+            raise RuntimeError("disconnect blew up")
+
+        monkeypatch.setattr(agent._context_client, "disconnect", boom)
+
+        with pytest.raises(RuntimeError, match="disconnect blew up"):
+            await agent.close()
+
+        assert agent._ollama_backend is None
+        assert not agent._initialized
