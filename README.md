@@ -88,7 +88,7 @@ Named model tiers (Ollama backend):
 | `default` | `qwen3.6:27b` | Primary tier for laptop / dev boxes with 16+ GB. |
 | `small` | `phi4-mini:3.8b` | Emergency fallback for <=8 GB RAM boxes. |
 
-pci-agent targets desktop and server runtimes; the mobile / on-device story lives in a separate native client (see ADR-006 in `pci-docs`). No `on-device` tier is exposed here — stock Ollama's bundled `llama.cpp` does not yet load the Q1_0 quantisation that on-device tiers such as Bonsai-27B ship in ([ollama/ollama#15359](https://github.com/ollama/ollama/issues/15359)).
+pci-agent targets desktop and server runtimes; the mobile / on-device story lives in a separate native client (see ADR-006 in `pci-docs`). This release does not expose an `on-device` tier — Bonsai-27B and similar Q1_0 models depend on `llama.cpp` backend support that isn't yet wired into every Ollama build (see [ollama/ollama#15359](https://github.com/ollama/ollama/issues/15359) for tracking).
 
 Basic usage:
 
