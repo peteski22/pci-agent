@@ -20,6 +20,7 @@ from pci_agent.config import AgentConfig
 from pci_agent.context import ContextClient, ContextItem
 from pci_agent.models.local_llm import LocalLLM
 from pci_agent.models.ollama import OllamaBackend
+from pci_agent.models.openai import OpenAICompatBackend
 from pci_agent.models.spal_bridge import (
     propose_request_context as _propose_request_context,
 )
@@ -49,6 +50,7 @@ class Agent:
         self.config = config or AgentConfig()
         self._llm: LocalLLM | None = None
         self._ollama_backend: OllamaBackend | None = None
+        self._openai_backend: OpenAICompatBackend | None = None
         self._context_client = ContextClient(self.config.context)
         self._policy_checker = PolicyChecker()
         self._initialized = False
@@ -67,6 +69,8 @@ class Agent:
                 self._llm = await self._load_llm()
         elif self.config.llm.backend == "ollama":
             self._ollama_backend = self._build_ollama_backend()
+        elif self.config.llm.backend == "openai":
+            self._openai_backend = self._build_openai_backend()
 
         try:
             await self._context_client.connect()
@@ -178,6 +182,18 @@ class Agent:
             temperature=cfg.temperature,
         )
 
+    def _build_openai_backend(self) -> OpenAICompatBackend:
+        """Construct an OpenAI-compatible backend from the current LLM config."""
+        cfg = self.config.llm
+        return OpenAICompatBackend(
+            base_url=cfg.openai_base_url,
+            model=cfg.openai_model,
+            tier=cfg.openai_tier if cfg.openai_model is None else None,
+            api_key=cfg.openai_api_key,
+            request_timeout=cfg.openai_timeout_seconds,
+            temperature=cfg.temperature,
+        )
+
     async def _generate_response(
         self,
         query: str,
@@ -191,6 +207,9 @@ class Agent:
             return response.text
         if self._ollama_backend is not None:
             response = await self._ollama_backend.generate(prompt)
+            return response.text
+        if self._openai_backend is not None:
+            response = await self._openai_backend.generate(prompt)
             return response.text
 
         context_summary = ", ".join(item.id for item in context_items)
@@ -236,3 +255,8 @@ class Agent:
                 await self._ollama_backend.aclose()
             finally:
                 self._ollama_backend = None
+        if self._openai_backend is not None:
+            try:
+                await self._openai_backend.aclose()
+            finally:
+                self._openai_backend = None

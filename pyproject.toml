@@ -57,8 +57,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "ollama: integration tests that require a live Ollama daemon on http://127.0.0.1:11434 (deselect by default with '-m \"not ollama\"')",
+    "openai: integration tests that require a live OpenAI-compatible server (deselect by default with '-m \"not openai\"')",
 ]
-addopts = "-m 'not ollama'"
+addopts = "-m 'not ollama and not openai'"
 
 [dependency-groups]
 dev = [
