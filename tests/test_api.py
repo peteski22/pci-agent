@@ -127,3 +127,47 @@ def test_approve_non_pending_returns_409():
     assert created["status"] == "approved"
     resp = client.post(f"/requests/{created['id']}/approve")
     assert resp.status_code == 409
+
+
+def test_deny_non_pending_returns_409():
+    config = AgentConfig(approval=ApprovalConfig(mode=ApprovalMode.MANUAL))
+    app = create_app(config, service_factory=lambda: StubService(DecisionOutcome.APPROVE))
+    client = TestClient(app)
+    created = client.post("/requests", json=_payload()).json()
+    first = client.post(f"/requests/{created['id']}/deny")
+    assert first.status_code == 200
+    assert first.json()["status"] == "denied"
+    resp = client.post(f"/requests/{created['id']}/deny")
+    assert resp.status_code == 409
+
+
+def test_approve_resolves_escalated_request():
+    config = AgentConfig(approval=ApprovalConfig(mode=ApprovalMode.AUTO_WITH_NOTIFICATION))
+    app = create_app(
+        config,
+        service_factory=lambda: StubService(
+            DecisionOutcome.DENY, approve_outcome=DecisionOutcome.APPROVE
+        ),
+    )
+    client = TestClient(app)
+    created = client.post("/requests", json=_payload()).json()
+    assert created["status"] == "escalated"
+
+    resp = client.post(f"/requests/{created['id']}/approve")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "approved"
+
+
+def test_deny_resolves_escalated_request():
+    config = AgentConfig(approval=ApprovalConfig(mode=ApprovalMode.AUTO_WITH_NOTIFICATION))
+    app = create_app(
+        config,
+        service_factory=lambda: StubService(DecisionOutcome.DENY),
+    )
+    client = TestClient(app)
+    created = client.post("/requests", json=_payload()).json()
+    assert created["status"] == "escalated"
+
+    resp = client.post(f"/requests/{created['id']}/deny")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "denied"

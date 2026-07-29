@@ -131,7 +131,7 @@ def create_app(
         req = repo.get(request_id)
         if req is None:
             raise HTTPException(status_code=404, detail="request not found")
-        if req.status is not RequestStatus.PENDING:
+        if req.status not in (RequestStatus.PENDING, RequestStatus.ESCALATED):
             raise HTTPException(status_code=409, detail="request already resolved")
 
         decision = await make_service().approve(req)
@@ -149,7 +149,7 @@ def create_app(
         req = repo.get(request_id)
         if req is None:
             raise HTTPException(status_code=404, detail="request not found")
-        if req.status is not RequestStatus.PENDING:
+        if req.status not in (RequestStatus.PENDING, RequestStatus.ESCALATED):
             raise HTTPException(status_code=409, detail="request already resolved")
 
         req = req.model_copy(
