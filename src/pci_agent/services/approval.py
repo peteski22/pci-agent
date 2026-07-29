@@ -90,6 +90,51 @@ class ApprovalService:
                 matched_rule_id=result.matched_rule_id,
             )
 
+        return await self._generate_proof(
+            request, private_data, matched_rule_id=result.matched_rule_id
+        )
+
+    async def approve(self, request: VerificationRequest) -> ApprovalDecision:
+        """Generate a proof for a request a human has already approved.
+
+        Skips the policy gate entirely: a human's explicit approval is the
+        authorization. Private data is sourced from the context store, same
+        as the autonomous path, so it never travels through the request body.
+
+        Args:
+            request: The verification request being resolved.
+
+        Returns:
+            The decision: ERROR if private data or proof generation is
+            unavailable, REJECT if the generated proof does not verify,
+            otherwise APPROVE.
+        """
+        try:
+            private_data = await self._data.fetch(request.context_scope)
+        except ContextUnavailable:
+            return ApprovalDecision(
+                outcome=DecisionOutcome.ERROR, reason="private data unavailable"
+            )
+        return await self._generate_proof(request, private_data)
+
+    async def _generate_proof(
+        self,
+        request: VerificationRequest,
+        private_data: dict[str, object],
+        *,
+        matched_rule_id: str | None = None,
+    ) -> ApprovalDecision:
+        """Generate and evaluate a proof for the request's claim.
+
+        Args:
+            request: The verification request whose claim is being proved.
+            private_data: The user data merged into the claim's proof inputs.
+            matched_rule_id: The policy rule that authorized this proof, if any.
+
+        Returns:
+            ERROR if the ZKP service is unavailable, otherwise APPROVE or
+            REJECT per whether the generated proof verifies.
+        """
         proof_data = {**request.claim.params, **private_data}
         try:
             zkp = await self._zkp.generate(request.claim.type, proof_data)
@@ -97,7 +142,7 @@ class ApprovalService:
             return ApprovalDecision(
                 outcome=DecisionOutcome.ERROR,
                 reason="verification unavailable",
-                matched_rule_id=result.matched_rule_id,
+                matched_rule_id=matched_rule_id,
             )
 
         outcome = DecisionOutcome.APPROVE if zkp.verified else DecisionOutcome.REJECT
@@ -105,7 +150,7 @@ class ApprovalService:
         return ApprovalDecision(
             outcome=outcome,
             reason=reason,
-            matched_rule_id=result.matched_rule_id,
+            matched_rule_id=matched_rule_id,
             proof=zkp.proof,
         )
 

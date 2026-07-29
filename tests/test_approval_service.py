@@ -157,3 +157,40 @@ async def test_missing_policy_id_denies_without_calling_policy():
 )
 def test_status_for(outcome, mode, expected):
     assert status_for(outcome, mode) is expected
+
+
+class BoomPolicy:
+    """Policy fake that fails loudly if reached: approve() must never consult policy."""
+
+    async def check(self, *a, **k):
+        raise AssertionError("must not consult policy on a manual approve")
+
+
+async def test_approve_generates_proof_verified():
+    svc = _svc(BoomPolicy(), zkp=FakeZKP(verified=True))
+    decision = await svc.approve(_req())
+    assert decision.outcome is DecisionOutcome.APPROVE
+    assert decision.reason == "verified"
+    assert decision.proof == {"ok": True}
+    assert decision.matched_rule_id is None
+
+
+async def test_approve_unverified_rejects():
+    svc = _svc(BoomPolicy(), zkp=FakeZKP(verified=False))
+    decision = await svc.approve(_req())
+    assert decision.outcome is DecisionOutcome.REJECT
+    assert decision.reason == "criteria not met"
+
+
+async def test_approve_zkp_unavailable_errors():
+    svc = _svc(BoomPolicy(), zkp=FakeZKP(fail=True))
+    decision = await svc.approve(_req())
+    assert decision.outcome is DecisionOutcome.ERROR
+    assert decision.reason == "verification unavailable"
+
+
+async def test_approve_context_unavailable_errors():
+    svc = _svc(BoomPolicy(), data=FakeData(fail=True))
+    decision = await svc.approve(_req())
+    assert decision.outcome is DecisionOutcome.ERROR
+    assert decision.reason == "private data unavailable"
