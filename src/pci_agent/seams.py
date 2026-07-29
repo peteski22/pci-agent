@@ -59,15 +59,31 @@ class ContextStoreDataProvider:
 
 
 class DeterministicContextBuilder:
-    """Phase 1 RequestContextBuilder: maps request fields with no LLM.
+    """Phase 1 RequestContextBuilder: returns an empty RequestContext, no LLM.
 
-    The natural-language LLM path (Agent.propose_request_context) is reserved
-    for free-text requests and is intentionally off the autonomous-approval
-    critical path so the flow needs no live model.
+    Phase 1 does not populate any RequestContext field from the verification
+    request; it always returns an empty context. The natural-language LLM
+    path (Agent.propose_request_context) is reserved for free-text requests
+    and is intentionally off the autonomous-approval critical path, so the
+    flow needs no live model.
+
+    Warning:
+        Because the returned context is empty, S-PAL policy rules whose
+        conditions depend on request context (e.g. derivative-use or
+        retention conditions) short-circuit on the missing values and are
+        NOT enforced — they fall through to a conclusive allow. Until
+        Phase 2 populates the context, condition-bearing rules must not be
+        trusted as a conclusive allow.
     """
 
     def build(self, request: VerificationRequest) -> RequestContext:
-        """Produce a minimal RequestContext from a structured request."""
+        """Return an empty RequestContext; Phase 1 maps no request fields.
+
+        Warning:
+            The empty context causes condition-bearing policy rules
+            (derivative-use, retention) to be skipped rather than enforced,
+            which falls through to allow. See the class docstring.
+        """
         return RequestContext()
 
 
