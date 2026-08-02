@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-import httpx
+import httpx2
 import pytest
 
 from pci_agent import Agent, AgentConfig, LLMConfig
@@ -13,7 +13,7 @@ from pci_agent.spal import IdentityType, ProofType
 
 
 def _transport(handler):  # noqa: ANN001, ANN201
-    return httpx.MockTransport(handler)
+    return httpx2.MockTransport(handler)
 
 
 class TestAgentBackendDispatch:
@@ -38,10 +38,10 @@ class TestAgentBackendDispatch:
             await agent.close()
 
     async def test_ollama_generate_used_when_no_context(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(request: httpx2.Request) -> httpx2.Response:
             body = json.loads(request.content)
             assert "Question: hello" in body["prompt"]
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 json={"response": "hi from ollama", "done": True, "eval_count": 5},
             )
@@ -88,11 +88,11 @@ class TestAgentPolicyHook:
             "payment_offered": False,
         }
 
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(request: httpx2.Request) -> httpx2.Response:
             body = json.loads(request.content)
             # The bridge must pass a JSON schema via Ollama's `format` field.
             assert isinstance(body.get("format"), dict)
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 json={
                     "response": json.dumps(proposal),
@@ -148,7 +148,7 @@ class TestAgentConfigFromEnv:
         assert cfg.llm.backend == "llamacpp"
 
     def test_env_timeout_rejects_infinity(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Infinite timeouts disable the httpx deadline; reject at parse time."""
+        """Infinite timeouts disable the httpx2 deadline; reject at parse time."""
         monkeypatch.setenv("PCI_OLLAMA_TIMEOUT", "inf")
         with pytest.raises(ValueError, match="finite"):
             AgentConfig.from_env()

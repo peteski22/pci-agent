@@ -24,7 +24,7 @@ import os
 from types import TracebackType
 from typing import Any
 
-import httpx
+import httpx2
 
 from pci_agent.models.backend import LLMResponse, StructuredResponse
 
@@ -97,7 +97,7 @@ def _resolve_env_model(
 class OllamaBackend:
     """Async HTTP client for a local Ollama daemon.
 
-    Instances own an :class:`httpx.AsyncClient`. Call :meth:`aclose` when
+    Instances own an :class:`httpx2.AsyncClient`. Call :meth:`aclose` when
     done (or use the backend as an async context manager). The client is
     created lazily so the backend is safe to construct from sync code.
     """
@@ -111,7 +111,7 @@ class OllamaBackend:
         request_timeout: float = DEFAULT_TIMEOUT_SECONDS,
         max_retries: int = DEFAULT_MAX_RETRIES,
         temperature: float = 0.2,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: httpx2.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = _resolve_env_model(explicit_model=model, tier=tier)
@@ -119,7 +119,7 @@ class OllamaBackend:
         self.max_retries = max_retries
         self.temperature = temperature
         self._transport = transport
-        self._client: httpx.AsyncClient | None = None
+        self._client: httpx2.AsyncClient | None = None
 
     # ---------------------------------------------------------------
     # Construction helpers
@@ -129,7 +129,7 @@ class OllamaBackend:
     def from_env(
         cls,
         *,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: httpx2.AsyncBaseTransport | None = None,
     ) -> OllamaBackend:
         """Build a backend using ``PCI_OLLAMA_*`` / ``PCI_LLM_TIER`` env vars."""
         base_url = os.environ.get("PCI_OLLAMA_URL", DEFAULT_OLLAMA_URL)
@@ -152,9 +152,9 @@ class OllamaBackend:
     # Lifecycle
     # ---------------------------------------------------------------
 
-    def _get_client(self) -> httpx.AsyncClient:
+    def _get_client(self) -> httpx2.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(
+            self._client = httpx2.AsyncClient(
                 base_url=self.base_url,
                 timeout=self.request_timeout,
                 transport=self._transport,
@@ -292,14 +292,14 @@ class OllamaBackend:
         for attempt in range(self.max_retries + 1):
             try:
                 response = await client.post("/api/generate", json=payload)
-            except httpx.TimeoutException as exc:
+            except httpx2.TimeoutException as exc:
                 last_exc = exc
                 if attempt == self.max_retries:
                     raise OllamaTimeoutError(
                         f"Ollama request timed out after {self.request_timeout}s"
                     ) from exc
                 continue
-            except httpx.HTTPError as exc:
+            except httpx2.HTTPError as exc:
                 last_exc = exc
                 if attempt == self.max_retries:
                     raise OllamaTransportError(f"Ollama transport error: {exc}") from exc

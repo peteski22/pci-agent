@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 
-import httpx
+import httpx2
 import pytest
 
 from pci_agent import Agent, AgentConfig, LLMConfig
@@ -13,9 +13,9 @@ from pci_agent.models.openai import OpenAICompatBackend
 
 
 def _transport(
-    handler: Callable[[httpx.Request], httpx.Response],
-) -> httpx.MockTransport:
-    return httpx.MockTransport(handler)
+    handler: Callable[[httpx2.Request], httpx2.Response],
+) -> httpx2.MockTransport:
+    return httpx2.MockTransport(handler)
 
 
 def _chat(content: str) -> dict:
@@ -44,12 +44,12 @@ class TestAgentBackendDispatch:
             await agent.close()
 
     async def test_openai_generate_used_when_no_context(self) -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(request: httpx2.Request) -> httpx2.Response:
             body = json.loads(request.content)
             assert request.url.path == "/v1/chat/completions"
             assert body["messages"][0]["content"].endswith("Answer:")
             assert "Question: hello" in body["messages"][0]["content"]
-            return httpx.Response(200, json=_chat("hi from openai"))
+            return httpx2.Response(200, json=_chat("hi from openai"))
 
         config = AgentConfig(llm=LLMConfig(backend="openai"))
         agent = Agent(config)
@@ -90,7 +90,7 @@ class TestAgentConfigFromEnv:
         assert cfg.llm.openai_api_key == "sk-xyz"
 
     def test_env_openai_timeout_rejects_infinity(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Infinite timeouts disable the httpx deadline; reject at parse time."""
+        """Infinite timeouts disable the httpx2 deadline; reject at parse time."""
         monkeypatch.setenv("PCI_OPENAI_TIMEOUT", "inf")
         with pytest.raises(ValueError, match="finite"):
             AgentConfig.from_env()

@@ -33,7 +33,7 @@ from types import TracebackType
 from typing import Any
 from urllib.parse import urlsplit
 
-import httpx
+import httpx2
 
 from pci_agent.models.backend import LLMResponse, StructuredResponse
 from pci_agent.models.ollama import DEFAULT_TIER, resolve_model_for_tier
@@ -108,7 +108,7 @@ def _resolve_env_model(
 class OpenAICompatBackend:
     """Async HTTP client for an OpenAI-compatible chat endpoint.
 
-    Instances own an :class:`httpx.AsyncClient`. Call :meth:`aclose` when
+    Instances own an :class:`httpx2.AsyncClient`. Call :meth:`aclose` when
     done (or use the backend as an async context manager). The client is
     created lazily so the backend is safe to construct from sync code.
     """
@@ -123,7 +123,7 @@ class OpenAICompatBackend:
         request_timeout: float = DEFAULT_TIMEOUT_SECONDS,
         max_retries: int = DEFAULT_MAX_RETRIES,
         temperature: float = 0.2,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: httpx2.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = _resolve_env_model(explicit_model=model, tier=tier)
@@ -133,7 +133,7 @@ class OpenAICompatBackend:
         self.max_retries = max_retries
         self.temperature = temperature
         self._transport = transport
-        self._client: httpx.AsyncClient | None = None
+        self._client: httpx2.AsyncClient | None = None
 
     # ---------------------------------------------------------------
     # Construction helpers
@@ -143,7 +143,7 @@ class OpenAICompatBackend:
     def from_env(
         cls,
         *,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: httpx2.AsyncBaseTransport | None = None,
     ) -> OpenAICompatBackend:
         """Build a backend using ``PCI_OPENAI_*`` / ``PCI_LLM_TIER`` env vars."""
         base_url = os.environ.get("PCI_OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL)
@@ -167,10 +167,10 @@ class OpenAICompatBackend:
     # Lifecycle
     # ---------------------------------------------------------------
 
-    def _get_client(self) -> httpx.AsyncClient:
+    def _get_client(self) -> httpx2.AsyncClient:
         if self._client is None:
             headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else None
-            self._client = httpx.AsyncClient(
+            self._client = httpx2.AsyncClient(
                 base_url=self.base_url,
                 timeout=self.request_timeout,
                 transport=self._transport,
@@ -326,14 +326,14 @@ class OpenAICompatBackend:
         for attempt in range(self.max_retries + 1):
             try:
                 response = await client.post("/chat/completions", json=payload)
-            except httpx.TimeoutException as exc:
+            except httpx2.TimeoutException as exc:
                 last_exc = exc
                 if attempt == self.max_retries:
                     raise OpenAITimeoutError(
                         f"OpenAI-compatible request timed out after {self.request_timeout}s"
                     ) from exc
                 continue
-            except httpx.HTTPError as exc:
+            except httpx2.HTTPError as exc:
                 last_exc = exc
                 if attempt == self.max_retries:
                     raise OpenAITransportError(f"OpenAI-compatible transport error: {exc}") from exc

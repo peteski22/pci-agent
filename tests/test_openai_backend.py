@@ -1,6 +1,6 @@
 """Tests for the OpenAI-compatible HTTP backend.
 
-Uses ``httpx.MockTransport`` so no daemon is required. Live-daemon smoke
+Uses ``httpx2.MockTransport`` so no daemon is required. Live-daemon smoke
 tests live in ``test_openai_integration.py`` behind the ``openai`` marker.
 """
 
@@ -10,7 +10,7 @@ import json
 import warnings
 from collections.abc import Callable
 
-import httpx
+import httpx2
 import pytest
 
 from pci_agent.models.backend import LLMResponse, StructuredResponse
@@ -28,9 +28,9 @@ from pci_agent.models.openai import (
 
 
 def _mock_transport(
-    handler: Callable[[httpx.Request], httpx.Response],
-) -> httpx.MockTransport:
-    return httpx.MockTransport(handler)
+    handler: Callable[[httpx2.Request], httpx2.Response],
+) -> httpx2.MockTransport:
+    return httpx2.MockTransport(handler)
 
 
 def _chat(content: str, *, finish_reason: str = "stop", completion_tokens: int = 12) -> dict:
@@ -46,8 +46,8 @@ def _chat(content: str, *, finish_reason: str = "stop", completion_tokens: int =
     }
 
 
-def _ok(body: dict) -> httpx.Response:
-    return httpx.Response(200, json=body)
+def _ok(body: dict) -> httpx2.Response:
+    return httpx2.Response(200, json=body)
 
 
 # --- model / env resolution ---
@@ -102,7 +102,7 @@ class TestModelResolution:
             OpenAICompatBackend.from_env()
 
     def test_from_env_rejects_infinite_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """`inf` parses as a valid float but disables the httpx deadline."""
+        """`inf` parses as a valid float but disables the httpx2 deadline."""
         monkeypatch.setenv("PCI_OPENAI_TIMEOUT", "inf")
         with pytest.raises(ValueError, match="finite"):
             OpenAICompatBackend.from_env()
@@ -155,7 +155,7 @@ class TestGenerate:
     async def test_happy_path(self) -> None:
         seen: dict[str, object] = {}
 
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(request: httpx2.Request) -> httpx2.Response:
             assert request.url.path == "/v1/chat/completions"
             assert request.method == "POST"
             seen.update(json.loads(request.content))
@@ -179,7 +179,7 @@ class TestGenerate:
     async def test_max_tokens_forwarded(self) -> None:
         seen: dict[str, object] = {}
 
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(request: httpx2.Request) -> httpx2.Response:
             seen.update(json.loads(request.content))
             return _ok(_chat("ok"))
 
@@ -192,7 +192,7 @@ class TestGenerate:
     async def test_api_key_sets_authorization_header(self) -> None:
         seen: dict[str, str | None] = {}
 
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(request: httpx2.Request) -> httpx2.Response:
             seen["auth"] = request.headers.get("Authorization")
             return _ok(_chat("ok"))
 
@@ -206,7 +206,7 @@ class TestGenerate:
     async def test_no_api_key_omits_authorization_header(self) -> None:
         seen: dict[str, str | None] = {}
 
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(request: httpx2.Request) -> httpx2.Response:
             seen["auth"] = request.headers.get("Authorization")
             return _ok(_chat("ok"))
 
@@ -216,8 +216,8 @@ class TestGenerate:
         assert seen["auth"] is None
 
     async def test_transport_error(self) -> None:
-        def handler(_req: httpx.Request) -> httpx.Response:
-            raise httpx.ConnectError("connection refused")
+        def handler(_req: httpx2.Request) -> httpx2.Response:
+            raise httpx2.ConnectError("connection refused")
 
         backend = OpenAICompatBackend(transport=_mock_transport(handler), max_retries=1)
         with pytest.raises(OpenAITransportError, match="transport error"):
@@ -225,8 +225,8 @@ class TestGenerate:
         await backend.aclose()
 
     async def test_timeout(self) -> None:
-        def handler(_req: httpx.Request) -> httpx.Response:
-            raise httpx.ReadTimeout("timeout")
+        def handler(_req: httpx2.Request) -> httpx2.Response:
+            raise httpx2.ReadTimeout("timeout")
 
         backend = OpenAICompatBackend(transport=_mock_transport(handler), max_retries=1)
         with pytest.raises(OpenAITimeoutError):
@@ -234,8 +234,8 @@ class TestGenerate:
         await backend.aclose()
 
     async def test_non_200(self) -> None:
-        def handler(_req: httpx.Request) -> httpx.Response:
-            return httpx.Response(400, text="bad request")
+        def handler(_req: httpx2.Request) -> httpx2.Response:
+            return httpx2.Response(400, text="bad request")
 
         backend = OpenAICompatBackend(transport=_mock_transport(handler))
         with pytest.raises(OpenAITransportError, match="HTTP 400"):
@@ -245,10 +245,10 @@ class TestGenerate:
     async def test_retries_5xx_then_succeeds(self) -> None:
         calls = {"n": 0}
 
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             calls["n"] += 1
             if calls["n"] == 1:
-                return httpx.Response(503, text="unavailable")
+                return httpx2.Response(503, text="unavailable")
             return _ok(_chat("recovered", completion_tokens=3))
 
         backend = OpenAICompatBackend(transport=_mock_transport(handler), max_retries=2)
@@ -258,7 +258,7 @@ class TestGenerate:
         await backend.aclose()
 
     async def test_missing_choices_raises(self) -> None:
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             return _ok({"choices": [], "usage": {}})
 
         backend = OpenAICompatBackend(transport=_mock_transport(handler))
@@ -284,7 +284,7 @@ class TestGenerateStructured:
     async def test_happy_path(self) -> None:
         captured: dict[str, object] = {}
 
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(request: httpx2.Request) -> httpx2.Response:
             captured.update(json.loads(request.content))
             payload = json.dumps({"verdict": "allow", "reason": "ok"})
             return _ok(_chat(payload, completion_tokens=20))
@@ -309,7 +309,7 @@ class TestGenerateStructured:
     async def test_schema_mismatch_raises(self) -> None:
         """Model returned text that isn't JSON."""
 
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             return _ok(_chat("not a JSON object"))
 
         backend = OpenAICompatBackend(transport=_mock_transport(handler))
@@ -318,7 +318,7 @@ class TestGenerateStructured:
         await backend.aclose()
 
     async def test_non_object_json_raises(self) -> None:
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             return _ok(_chat('["a", "b"]'))
 
         backend = OpenAICompatBackend(transport=_mock_transport(handler))
@@ -327,7 +327,7 @@ class TestGenerateStructured:
         await backend.aclose()
 
     async def test_empty_content_raises_refusal(self) -> None:
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             return _ok(_chat("   "))
 
         backend = OpenAICompatBackend(transport=_mock_transport(handler))
@@ -338,7 +338,7 @@ class TestGenerateStructured:
     async def test_explicit_refusal_field_raises(self) -> None:
         """OpenAI structured outputs surface refusals via a dedicated field."""
 
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             return _ok(
                 {
                     "choices": [

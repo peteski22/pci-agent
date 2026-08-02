@@ -23,7 +23,7 @@ Backend = Literal["ollama", "openai", "llamacpp"]
 def _parse_env_timeout(var_name: str, default: float) -> float:
     """Parse a per-request timeout env var, rejecting non-finite values.
 
-    A non-finite timeout (e.g. ``inf``) disables the httpx deadline, so it is
+    A non-finite timeout (e.g. ``inf``) disables the httpx2 deadline, so it is
     rejected here rather than silently dropped. Non-positive values are left
     for the pydantic ``Field`` guard to reject with its own message.
     """

@@ -1,12 +1,12 @@
 """HTTP client for the PCI ZKP service.
 
-Replaces the urllib call in the old server with an injectable httpx client so
+Replaces the urllib call in the old server with an injectable httpx2 client so
 the approval flow can be tested against a fake transport.
 """
 
 from __future__ import annotations
 
-import httpx
+import httpx2
 from pydantic import BaseModel, Field
 
 from pci_agent.errors import ZKPUnavailable
@@ -22,9 +22,9 @@ class ZKPResult(BaseModel):
 class ZKPClient:
     """Generates zero-knowledge proofs via the PCI ZKP service."""
 
-    def __init__(self, base_url: str, *, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(self, base_url: str, *, client: httpx2.AsyncClient | None = None) -> None:
         self._owns_client = client is None
-        self._client = client or httpx.AsyncClient(base_url=base_url, timeout=30.0)
+        self._client = client or httpx2.AsyncClient(base_url=base_url, timeout=30.0)
 
     async def generate(self, proof_type: str, proof_data: dict[str, object]) -> ZKPResult:
         """Request a proof of the given type.
@@ -44,7 +44,7 @@ class ZKPClient:
             response = await self._client.post(f"/proofs/{proof_type}", json=proof_data)
             response.raise_for_status()
             payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+        except (httpx2.HTTPError, ValueError) as exc:
             raise ZKPUnavailable("verification service unavailable") from exc
 
         if not isinstance(payload, dict):
