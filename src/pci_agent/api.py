@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import os
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
@@ -29,7 +30,7 @@ from pci_agent.seams import (
     ContextStoreDataProvider,
     DeterministicContextBuilder,
 )
-from pci_agent.services.approval import ApprovalService, status_for
+from pci_agent.services.approval import ApprovalService, resolved_status_for, status_for
 from pci_agent.store import RequestRepository
 from pci_agent.zkp import ZKPClient
 
@@ -53,13 +54,13 @@ class CreateVerificationRequest(BaseModel):
     service_request_id: str | None = None
 
 
-def _default_service_factory(config: AgentConfig) -> Callable[[], _Decider]:
+def _default_service_factory(config: AgentConfig, zkp_client: ZKPClient) -> Callable[[], _Decider]:
     def factory() -> _Decider:
         return ApprovalService(
             PolicyChecker(),
             DeterministicContextBuilder(),
             ContextStoreDataProvider(ContextClient(config.context)),
-            ZKPClient(ZKP_SERVICE_URL),
+            zkp_client,
         )
 
     return factory
@@ -75,7 +76,9 @@ def create_app(
 
     Args:
         config: Agent configuration; defaults to AgentConfig().
-        service_factory: Builds the approval decider (injected in tests).
+        service_factory: Builds the approval decider (injected in tests). When
+            omitted, one shared ZKPClient is created for the app's lifetime and
+            closed on shutdown.
         repository: Request store (injected in tests).
 
     Returns:
@@ -83,19 +86,41 @@ def create_app(
     """
     config = config or AgentConfig()
     repo = repository or RequestRepository()
-    make_service = service_factory or _default_service_factory(config)
-    app = FastAPI(title="pci-agent", version="0.1.0")
+
+    # A single ZKPClient owns one connection pool for the app's lifetime; the
+    # per-request service is otherwise cheap to rebuild. Tests inject their own
+    # factory and so never create the shared client.
+    zkp_client: ZKPClient | None = None
+    if service_factory is None:
+        zkp_client = ZKPClient(ZKP_SERVICE_URL)
+        make_service: Callable[[], _Decider] = _default_service_factory(config, zkp_client)
+    else:
+        make_service = service_factory
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        """Close the shared ZKP client's connection pool on shutdown."""
+        try:
+            yield
+        finally:
+            if zkp_client is not None:
+                await zkp_client.aclose()
+
+    app = FastAPI(title="pci-agent", version="0.1.0", lifespan=lifespan)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
+        """Report liveness for container health checks."""
         return {"status": "healthy", "service": "pci-agent"}
 
     @app.get("/requests")
     async def list_requests() -> dict[str, list[VerificationRequest]]:
+        """Return every tracked verification request."""
         return {"requests": repo.list()}
 
     @app.get("/requests/{request_id}")
     async def get_request(request_id: str) -> VerificationRequest:
+        """Return a single request, or 404 if it is not tracked."""
         req = repo.get(request_id)
         if req is None:
             raise HTTPException(status_code=404, detail="request not found")
@@ -103,9 +128,10 @@ def create_app(
 
     @app.post("/requests", status_code=201)
     async def create_request(payload: CreateVerificationRequest) -> VerificationRequest:
+        """Create a request; autonomously resolve it unless in manual mode."""
         now = datetime.now(UTC)
         req = VerificationRequest(
-            id=str(uuid.uuid4())[:8],
+            id=uuid.uuid4().hex,
             business_id=payload.business_id,
             business_name=payload.business_name,
             claim=payload.claim,
@@ -116,7 +142,11 @@ def create_app(
             expires_at=now + timedelta(minutes=5),
         )
         if config.approval.mode is not ApprovalMode.MANUAL:
-            decision = await make_service().decide(req)
+            try:
+                decision = await make_service().decide(req)
+            except Exception as exc:
+                repo.add(_as_error(req))
+                raise HTTPException(status_code=500, detail="approval evaluation failed") from exc
             req = req.model_copy(
                 update={
                     "status": status_for(decision.outcome, config.approval.mode),
@@ -128,16 +158,21 @@ def create_app(
 
     @app.post("/requests/{request_id}/approve")
     async def approve_request(request_id: str) -> VerificationRequest:
+        """Resolve a pending or escalated request by human approval."""
         req = repo.get(request_id)
         if req is None:
             raise HTTPException(status_code=404, detail="request not found")
         if req.status not in (RequestStatus.PENDING, RequestStatus.ESCALATED):
             raise HTTPException(status_code=409, detail="request already resolved")
 
-        decision = await make_service().approve(req)
+        try:
+            decision = await make_service().approve(req)
+        except Exception as exc:
+            repo.replace(_as_error(req))
+            raise HTTPException(status_code=500, detail="approval evaluation failed") from exc
         req = req.model_copy(
             update={
-                "status": status_for(decision.outcome, config.approval.mode),
+                "status": resolved_status_for(decision.outcome),
                 "response": {"reason": decision.reason, "proof": decision.proof},
             }
         )
@@ -146,6 +181,7 @@ def create_app(
 
     @app.post("/requests/{request_id}/deny")
     async def deny_request(request_id: str) -> VerificationRequest:
+        """Resolve a pending or escalated request as denied by the user."""
         req = repo.get(request_id)
         if req is None:
             raise HTTPException(status_code=404, detail="request not found")
@@ -162,3 +198,13 @@ def create_app(
         return req
 
     return app
+
+
+def _as_error(req: VerificationRequest) -> VerificationRequest:
+    """Return a copy of the request marked as failed, for durable auditing."""
+    return req.model_copy(
+        update={
+            "status": RequestStatus.ERROR,
+            "response": {"reason": "approval evaluation failed"},
+        }
+    )

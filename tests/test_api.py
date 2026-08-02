@@ -4,7 +4,13 @@ from fastapi.testclient import TestClient
 
 from pci_agent.api import create_app
 from pci_agent.config import AgentConfig, ApprovalConfig
-from pci_agent.coordination import ApprovalDecision, ApprovalMode, DecisionOutcome
+from pci_agent.coordination import (
+    ApprovalDecision,
+    ApprovalMode,
+    DecisionOutcome,
+    RequestStatus,
+)
+from pci_agent.store import RequestRepository
 
 
 def _payload() -> dict:
@@ -171,3 +177,71 @@ def test_deny_resolves_escalated_request():
     resp = client.post(f"/requests/{created['id']}/deny")
     assert resp.status_code == 200
     assert resp.json()["status"] == "denied"
+
+
+class RaisingService:
+    """Service whose evaluation always raises an unexpected error."""
+
+    async def decide(self, request):
+        raise RuntimeError("boom")
+
+    async def approve(self, request):
+        raise RuntimeError("boom")
+
+
+def test_request_id_is_full_uuid():
+    app = create_app(AgentConfig(approval=ApprovalConfig(mode=ApprovalMode.MANUAL)))
+    client = TestClient(app)
+    rid = client.post("/requests", json=_payload()).json()["id"]
+    assert len(rid) == 32
+    assert all(c in "0123456789abcdef" for c in rid)
+
+
+def test_manual_approve_denied_outcome_is_terminal_not_escalated():
+    # Under auto-with-notification, a human's denial must resolve to DENIED, not re-escalate.
+    config = AgentConfig(approval=ApprovalConfig(mode=ApprovalMode.AUTO_WITH_NOTIFICATION))
+    app = create_app(
+        config,
+        service_factory=lambda: StubService(
+            DecisionOutcome.DENY, approve_outcome=DecisionOutcome.DENY
+        ),
+    )
+    client = TestClient(app)
+    created = client.post("/requests", json=_payload()).json()
+    assert created["status"] == "escalated"
+    resp = client.post(f"/requests/{created['id']}/approve")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "denied"
+
+
+def test_create_request_records_error_on_unexpected_failure():
+    repo = RequestRepository()
+    config = AgentConfig(approval=ApprovalConfig(mode=ApprovalMode.FULLY_AUTONOMOUS))
+    app = create_app(config, service_factory=lambda: RaisingService(), repository=repo)
+    client = TestClient(app)
+    resp = client.post("/requests", json=_payload())
+    assert resp.status_code == 500
+    stored = repo.list()
+    assert len(stored) == 1
+    assert stored[0].status is RequestStatus.ERROR
+
+
+def test_approve_records_error_on_unexpected_failure():
+    repo = RequestRepository()
+    config = AgentConfig(approval=ApprovalConfig(mode=ApprovalMode.MANUAL))
+    app = create_app(config, service_factory=lambda: RaisingService(), repository=repo)
+    client = TestClient(app)
+    created = client.post("/requests", json=_payload()).json()
+    assert created["status"] == "pending"
+    resp = client.post(f"/requests/{created['id']}/approve")
+    assert resp.status_code == 500
+    stored = repo.get(created["id"])
+    assert stored is not None
+    assert stored.status is RequestStatus.ERROR
+
+
+def test_default_app_lifespan_closes_cleanly():
+    # Exercises the default factory + shared ZKPClient lifespan (startup/shutdown).
+    app = create_app(AgentConfig(approval=ApprovalConfig(mode=ApprovalMode.MANUAL)))
+    with TestClient(app) as client:
+        assert client.get("/health").json()["status"] == "healthy"
