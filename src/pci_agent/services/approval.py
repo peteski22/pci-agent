@@ -18,9 +18,12 @@ from pci_agent.coordination import (
     VerificationRequest,
 )
 from pci_agent.errors import ContextUnavailable, ZKPUnavailable
-from pci_agent.policy import PolicyChecker
-from pci_agent.seams import PrivateDataProvider, RequestContextBuilder
-from pci_agent.zkp import ZKPClient
+from pci_agent.seams import (
+    PolicyCheck,
+    PrivateDataProvider,
+    ProofGenerator,
+    RequestContextBuilder,
+)
 
 
 class ApprovalService:
@@ -28,10 +31,10 @@ class ApprovalService:
 
     def __init__(
         self,
-        policy_checker: PolicyChecker,
+        policy_checker: PolicyCheck,
         context_builder: RequestContextBuilder,
         data_provider: PrivateDataProvider,
-        zkp_client: ZKPClient,
+        zkp_client: ProofGenerator,
     ) -> None:
         """Wire the seams a decision needs: policy, context, private data, and ZKP.
 
@@ -105,10 +108,13 @@ class ApprovalService:
             request: The verification request being resolved.
 
         Returns:
-            The decision: ERROR if private data or proof generation is
-            unavailable, REJECT if the generated proof does not verify,
-            otherwise APPROVE.
+            The decision: DENY if the request has already expired, ERROR if
+            private data or proof generation is unavailable, REJECT if the
+            generated proof does not verify, otherwise APPROVE.
         """
+        if request.expires_at < datetime.now(UTC):
+            return ApprovalDecision(outcome=DecisionOutcome.DENY, reason="request expired")
+
         try:
             private_data = await self._data.fetch(request.context_scope)
         except ContextUnavailable:
@@ -175,4 +181,26 @@ def status_for(outcome: DecisionOutcome, mode: ApprovalMode) -> RequestStatus:
     # DENY: a human may still resolve it under auto-with-notification.
     if mode is ApprovalMode.AUTO_WITH_NOTIFICATION:
         return RequestStatus.ESCALATED
+    return RequestStatus.DENIED
+
+
+def resolved_status_for(outcome: DecisionOutcome) -> RequestStatus:
+    """Map a human-resolution outcome to a terminal stored status.
+
+    Unlike status_for, this never escalates: the manual approve and deny
+    endpoints record a human's final decision, so a denied outcome becomes
+    DENIED rather than being bounced back to ESCALATED.
+
+    Args:
+        outcome: The evaluation result of a human-approved request.
+
+    Returns:
+        The terminal RequestStatus to persist.
+    """
+    if outcome is DecisionOutcome.APPROVE:
+        return RequestStatus.APPROVED
+    if outcome is DecisionOutcome.REJECT:
+        return RequestStatus.REJECTED
+    if outcome is DecisionOutcome.ERROR:
+        return RequestStatus.ERROR
     return RequestStatus.DENIED

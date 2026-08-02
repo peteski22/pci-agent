@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from pci_agent.context import ContextClient
+from pci_agent.context import ContextItem
 from pci_agent.coordination import VerificationRequest
 from pci_agent.errors import ContextUnavailable
+from pci_agent.policy import PolicyCheckResult
 from pci_agent.spal import RequestContext
+from pci_agent.zkp import ZKPResult
 
 
 class PrivateDataProvider(Protocol):
@@ -39,10 +41,42 @@ class EnvelopeVerifier(Protocol):
         ...
 
 
+class PolicyCheck(Protocol):
+    """Evaluates a request against an S-PAL policy."""
+
+    async def check(
+        self,
+        policy_id: str,
+        query: str,
+        context_scope: str | None = None,
+        request_context: RequestContext | None = None,
+    ) -> PolicyCheckResult:
+        """Return whether the query is permitted by the named policy."""
+        ...
+
+
+class ProofGenerator(Protocol):
+    """Generates a zero-knowledge proof for a claim."""
+
+    async def generate(self, proof_type: str, proof_data: dict[str, object]) -> ZKPResult:
+        """Produce a proof of the given type over the provided inputs."""
+        ...
+
+
+class ContextSearcher(Protocol):
+    """Searches the context store for a scope's items."""
+
+    async def search(
+        self, query: str, scope: str | None = None, limit: int = 10
+    ) -> list[ContextItem]:
+        """Return items matching the query within an optional scope."""
+        ...
+
+
 class ContextStoreDataProvider:
     """Phase 1 PrivateDataProvider backed by the (mocked) context store."""
 
-    def __init__(self, client: ContextClient) -> None:
+    def __init__(self, client: ContextSearcher) -> None:
         self._client = client
 
     async def fetch(self, scope: str | None) -> dict[str, object]:

@@ -10,7 +10,7 @@ from pci_agent.coordination import (
     VerificationRequest,
 )
 from pci_agent.policy import PolicyCheckResult
-from pci_agent.services.approval import ApprovalService, status_for
+from pci_agent.services.approval import ApprovalService, resolved_status_for, status_for
 from pci_agent.spal import RequestContext
 
 
@@ -194,3 +194,25 @@ async def test_approve_context_unavailable_errors():
     decision = await svc.approve(_req())
     assert decision.outcome is DecisionOutcome.ERROR
     assert decision.reason == "private data unavailable"
+
+
+async def test_approve_expired_request_denies_without_fetching():
+    # Fail-closed: an expired request must not fetch private data or generate a proof.
+    svc = _svc(BoomPolicy(), data=BoomData(), zkp=BoomZKP())
+    decision = await svc.approve(_req(minutes_valid=-1))
+    assert decision.outcome is DecisionOutcome.DENY
+    assert decision.reason == "request expired"
+
+
+@pytest.mark.parametrize(
+    "outcome,expected",
+    [
+        (DecisionOutcome.APPROVE, RequestStatus.APPROVED),
+        (DecisionOutcome.REJECT, RequestStatus.REJECTED),
+        (DecisionOutcome.ERROR, RequestStatus.ERROR),
+        (DecisionOutcome.DENY, RequestStatus.DENIED),
+    ],
+)
+def test_resolved_status_for_never_escalates(outcome, expected):
+    # A human's decision is terminal: DENY must resolve to DENIED, never ESCALATED.
+    assert resolved_status_for(outcome) is expected
