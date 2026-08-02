@@ -117,6 +117,7 @@ PCI_OLLAMA_MODEL=phi4-mini:3.8b uv run pytest -m ollama
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `HOST` | `0.0.0.0` | Bind address; set to `127.0.0.1` to listen on loopback only |
 | `PORT` | `8082` | HTTP server port |
 | `ZKP_SERVICE_URL` | `http://localhost:8084` | ZKP service endpoint |
 | `PCI_APPROVAL_MODE` | `manual` | Autonomous approval mode: `manual`, `auto_with_notification`, or `fully_autonomous` |
