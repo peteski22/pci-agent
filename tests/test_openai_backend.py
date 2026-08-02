@@ -94,7 +94,7 @@ class TestModelResolution:
     def test_from_env_reads_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PCI_OPENAI_API_KEY", "sk-secret")
         backend = OpenAICompatBackend.from_env()
-        assert backend.api_key == "sk-secret"
+        assert backend.api_key == "sk-secret"  # pragma: allowlist secret
 
     def test_from_env_rejects_bad_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PCI_OPENAI_TIMEOUT", "not-a-float")
@@ -121,7 +121,7 @@ class TestTransportSecurity:
             OpenAICompatBackend(
                 base_url="http://example.internal:8000/v1",
                 model="m",
-                api_key="sk-abc",
+                api_key="sk-abc",  # pragma: allowlist secret
             )
 
     def test_loopback_http_with_api_key_does_not_warn(self) -> None:
@@ -130,7 +130,7 @@ class TestTransportSecurity:
             OpenAICompatBackend(
                 base_url="http://127.0.0.1:8000/v1",
                 model="m",
-                api_key="sk-abc",
+                api_key="sk-abc",  # pragma: allowlist secret
             )
 
     def test_remote_https_with_api_key_does_not_warn(self) -> None:
@@ -139,7 +139,7 @@ class TestTransportSecurity:
             OpenAICompatBackend(
                 base_url="https://api.example.com/v1",
                 model="m",
-                api_key="sk-abc",
+                api_key="sk-abc",  # pragma: allowlist secret
             )
 
     def test_remote_http_without_api_key_does_not_warn(self) -> None:
@@ -197,7 +197,9 @@ class TestGenerate:
             return _ok(_chat("ok"))
 
         async with OpenAICompatBackend(
-            model="m", api_key="sk-abc", transport=_mock_transport(handler)
+            model="m",
+            api_key="sk-abc",  # pragma: allowlist secret
+            transport=_mock_transport(handler),
         ) as backend:
             await backend.generate("Hi")
 

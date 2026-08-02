@@ -87,7 +87,7 @@ class TestAgentConfigFromEnv:
         assert cfg.llm.backend == "openai"
         assert cfg.llm.openai_tier == "small"
         assert cfg.llm.openai_base_url == "http://example.internal:8000/v1"
-        assert cfg.llm.openai_api_key == "sk-xyz"
+        assert cfg.llm.openai_api_key == "sk-xyz"  # pragma: allowlist secret
 
     def test_env_openai_timeout_rejects_infinity(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Infinite timeouts disable the httpx2 deadline; reject at parse time."""
