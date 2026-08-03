@@ -9,6 +9,8 @@ services:
       - CONTEXT_STORE_URL=http://context-store:8081
       - MODEL_PATH=/app/models/phi-3-mini-q4.gguf
       - PORT=8082
+      # Bind all interfaces inside the container so the published port is reachable.
+      - HOST=0.0.0.0
 
   # Optional: standalone context store for local dev
   context-store:
