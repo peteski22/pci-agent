@@ -1,6 +1,6 @@
 """Tests for the Ollama HTTP backend.
 
-Uses ``httpx.MockTransport`` so no daemon is required. Live-daemon smoke
+Uses ``httpx2.MockTransport`` so no daemon is required. Live-daemon smoke
 tests live in ``test_ollama_integration.py`` behind the ``ollama`` marker.
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 
-import httpx
+import httpx2
 import pytest
 
 from pci_agent.models.backend import LLMResponse, StructuredResponse
@@ -28,13 +28,13 @@ from pci_agent.models.ollama import (
 
 
 def _mock_transport(
-    handler: Callable[[httpx.Request], httpx.Response],
-) -> httpx.MockTransport:
-    return httpx.MockTransport(handler)
+    handler: Callable[[httpx2.Request], httpx2.Response],
+) -> httpx2.MockTransport:
+    return httpx2.MockTransport(handler)
 
 
-def _ok(body: dict) -> httpx.Response:
-    return httpx.Response(200, json=body)
+def _ok(body: dict) -> httpx2.Response:
+    return httpx2.Response(200, json=body)
 
 
 # --- tier resolution ---
@@ -83,7 +83,7 @@ class TestTierResolution:
             OllamaBackend.from_env()
 
     def test_from_env_rejects_infinite_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """`inf` parses as a valid float but disables the httpx deadline."""
+        """`inf` parses as a valid float but disables the httpx2 deadline."""
         monkeypatch.setenv("PCI_OLLAMA_TIMEOUT", "inf")
         with pytest.raises(ValueError, match="finite"):
             OllamaBackend.from_env()
@@ -96,7 +96,7 @@ class TestGenerate:
     async def test_happy_path(self) -> None:
         seen: dict[str, object] = {}
 
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(request: httpx2.Request) -> httpx2.Response:
             assert request.url.path == "/api/generate"
             assert request.method == "POST"
             body = json.loads(request.content)
@@ -127,8 +127,8 @@ class TestGenerate:
         assert "format" not in seen  # unstructured call must NOT set format
 
     async def test_generate_transport_error(self) -> None:
-        def handler(_req: httpx.Request) -> httpx.Response:
-            raise httpx.ConnectError("connection refused")
+        def handler(_req: httpx2.Request) -> httpx2.Response:
+            raise httpx2.ConnectError("connection refused")
 
         backend = OllamaBackend(
             transport=_mock_transport(handler),
@@ -139,8 +139,8 @@ class TestGenerate:
         await backend.aclose()
 
     async def test_generate_timeout(self) -> None:
-        def handler(_req: httpx.Request) -> httpx.Response:
-            raise httpx.ReadTimeout("timeout")
+        def handler(_req: httpx2.Request) -> httpx2.Response:
+            raise httpx2.ReadTimeout("timeout")
 
         backend = OllamaBackend(
             transport=_mock_transport(handler),
@@ -151,8 +151,8 @@ class TestGenerate:
         await backend.aclose()
 
     async def test_generate_non_200(self) -> None:
-        def handler(_req: httpx.Request) -> httpx.Response:
-            return httpx.Response(400, text="bad payload")
+        def handler(_req: httpx2.Request) -> httpx2.Response:
+            return httpx2.Response(400, text="bad payload")
 
         backend = OllamaBackend(transport=_mock_transport(handler))
         with pytest.raises(OllamaTransportError, match="HTTP 400"):
@@ -162,10 +162,10 @@ class TestGenerate:
     async def test_generate_retries_5xx_then_succeeds(self) -> None:
         calls = {"n": 0}
 
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             calls["n"] += 1
             if calls["n"] == 1:
-                return httpx.Response(503, text="unavailable")
+                return httpx2.Response(503, text="unavailable")
             return _ok({"response": "recovered", "done": True, "eval_count": 3})
 
         backend = OllamaBackend(transport=_mock_transport(handler), max_retries=2)
@@ -192,7 +192,7 @@ class TestGenerateStructured:
     async def test_happy_path(self) -> None:
         captured: dict[str, object] = {}
 
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(request: httpx2.Request) -> httpx2.Response:
             captured.update(json.loads(request.content))
             return _ok(
                 {
@@ -219,7 +219,7 @@ class TestGenerateStructured:
     async def test_schema_mismatch_raises(self) -> None:
         """Model returned text that isn't JSON."""
 
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             return _ok({"response": "not a JSON object", "done": True, "eval_count": 3})
 
         backend = OllamaBackend(transport=_mock_transport(handler))
@@ -228,7 +228,7 @@ class TestGenerateStructured:
         await backend.aclose()
 
     async def test_non_object_json_raises(self) -> None:
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             return _ok({"response": '["a", "b"]', "done": True, "eval_count": 2})
 
         backend = OllamaBackend(transport=_mock_transport(handler))
@@ -237,7 +237,7 @@ class TestGenerateStructured:
         await backend.aclose()
 
     async def test_empty_response_raises_refusal(self) -> None:
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             return _ok({"response": "   ", "done": True, "eval_count": 0})
 
         backend = OllamaBackend(transport=_mock_transport(handler))
@@ -262,7 +262,7 @@ class TestPolicyBridge:
             "payment_offered": True,
         }
 
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             return _ok(
                 {
                     "response": json.dumps(proposal),
@@ -284,7 +284,7 @@ class TestPolicyBridge:
         """Value-level validation catches shape that JSON-schema alone can't."""
         from pci_agent.models.spal_bridge import propose_request_context
 
-        def handler(_req: httpx.Request) -> httpx.Response:
+        def handler(_req: httpx2.Request) -> httpx2.Response:
             return _ok(
                 {
                     "response": json.dumps(

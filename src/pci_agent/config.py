@@ -15,13 +15,15 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from pci_agent.coordination import ApprovalMode
+
 Backend = Literal["ollama", "openai", "llamacpp"]
 
 
 def _parse_env_timeout(var_name: str, default: float) -> float:
     """Parse a per-request timeout env var, rejecting non-finite values.
 
-    A non-finite timeout (e.g. ``inf``) disables the httpx deadline, so it is
+    A non-finite timeout (e.g. ``inf``) disables the httpx2 deadline, so it is
     rejected here rather than silently dropped. Non-positive values are left
     for the pydantic ``Field`` guard to reject with its own message.
     """
@@ -81,11 +83,18 @@ class ContextConfig(BaseModel):
     timeout_seconds: float = 30.0
 
 
+class ApprovalConfig(BaseModel):
+    """Autonomous-approval behavior."""
+
+    mode: ApprovalMode = ApprovalMode.MANUAL
+
+
 class AgentConfig(BaseModel):
     """Main agent configuration"""
 
     llm: LLMConfig = Field(default_factory=LLMConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
+    approval: ApprovalConfig = Field(default_factory=ApprovalConfig)
 
     # Agent behavior
     max_context_items: int = Field(default=10, ge=1, le=100)
@@ -108,6 +117,9 @@ class AgentConfig(BaseModel):
         # the PCI_OLLAMA_* family for the OpenAI-compatible endpoint.
         tier = os.environ.get("PCI_LLM_TIER", "default")
 
+        mode_env = os.environ.get("PCI_APPROVAL_MODE")
+        mode = ApprovalMode(mode_env) if mode_env in tuple(ApprovalMode) else ApprovalMode.MANUAL
+
         return cls(
             llm=LLMConfig(
                 backend=backend,
@@ -121,5 +133,6 @@ class AgentConfig(BaseModel):
                 openai_model=os.environ.get("PCI_OPENAI_MODEL"),
                 openai_api_key=os.environ.get("PCI_OPENAI_API_KEY"),
                 openai_timeout_seconds=_parse_env_timeout("PCI_OPENAI_TIMEOUT", 120.0),
-            )
+            ),
+            approval=ApprovalConfig(mode=mode),
         )

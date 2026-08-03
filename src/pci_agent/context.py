@@ -14,7 +14,7 @@ class ContextItem:
     id: str
     content: str
     score: float
-    metadata: dict | None = None
+    metadata: dict[str, object] | None = None
 
 
 class ContextClient:
