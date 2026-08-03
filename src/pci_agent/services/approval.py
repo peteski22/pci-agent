@@ -61,7 +61,7 @@ class ApprovalService:
             policy allows but the generated proof does not verify, otherwise
             APPROVE or DENY per the policy result.
         """
-        if request.expires_at < datetime.now(UTC):
+        if request.expires_at <= datetime.now(UTC):
             return ApprovalDecision(outcome=DecisionOutcome.DENY, reason="request expired")
 
         if request.policy_id is None:
@@ -112,7 +112,7 @@ class ApprovalService:
             private data or proof generation is unavailable, REJECT if the
             generated proof does not verify, otherwise APPROVE.
         """
-        if request.expires_at < datetime.now(UTC):
+        if request.expires_at <= datetime.now(UTC):
             return ApprovalDecision(outcome=DecisionOutcome.DENY, reason="request expired")
 
         try:
