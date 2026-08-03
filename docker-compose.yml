@@ -2,14 +2,17 @@ services:
   agent:
     build: .
     ports:
-      - "8082:8082"
+      # Publish to host loopback only: the coordination API is unauthenticated
+      # (auth lands in Phase 2). Widen this deliberately behind auth + TLS.
+      - "127.0.0.1:8082:8082"
     volumes:
       - ./models:/app/models:ro
     environment:
       - CONTEXT_STORE_URL=http://context-store:8081
       - MODEL_PATH=/app/models/phi-3-mini-q4.gguf
       - PORT=8082
-      # Bind all interfaces inside the container so the published port is reachable.
+      # Bind all container interfaces so the published port reaches the app;
+      # host exposure is constrained by the loopback port mapping above.
       - HOST=0.0.0.0
 
   # Optional: standalone context store for local dev
