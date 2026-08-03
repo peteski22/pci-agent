@@ -21,3 +21,11 @@ class ZKPUnavailable(ServiceError):  # noqa: N818
 
 class RequestExpired(ServiceError):  # noqa: N818
     """An action was attempted on a request past its expiry."""
+
+
+class ServiceRequestNotFound(ServiceError):  # noqa: N818
+    """A referenced service request is not tracked."""
+
+
+class ServiceRequestConflict(ServiceError):  # noqa: N818
+    """The service request's status does not allow the attempted action."""

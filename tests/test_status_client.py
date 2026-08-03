@@ -1,9 +1,13 @@
+"""Tests for the /services status aggregation client."""
+
+from collections.abc import Callable
+
 import httpx2
 
 from pci_agent.status import StatusClient
 
 
-def _client(handler) -> StatusClient:
+def _client(handler: Callable[[httpx2.Request], httpx2.Response]) -> StatusClient:
     transport = httpx2.MockTransport(handler)
     http = httpx2.AsyncClient(transport=transport)
     return StatusClient(
@@ -14,7 +18,7 @@ def _client(handler) -> StatusClient:
     )
 
 
-async def test_check_reports_healthy_services_and_latest_block():
+async def test_check_reports_healthy_services_and_latest_block() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         if request.url.host == "zkp":
             return httpx2.Response(200, json={"status": "healthy"})
@@ -29,7 +33,7 @@ async def test_check_reports_healthy_services_and_latest_block():
     await client.aclose()
 
 
-async def test_check_reports_unavailable_on_transport_error():
+async def test_check_reports_unavailable_on_transport_error() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError("refused")
 
@@ -42,7 +46,7 @@ async def test_check_reports_unavailable_on_transport_error():
     await client.aclose()
 
 
-async def test_check_reports_unavailable_on_http_error_status():
+async def test_check_reports_unavailable_on_http_error_status() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(500)
 
@@ -53,7 +57,7 @@ async def test_check_reports_unavailable_on_http_error_status():
     await client.aclose()
 
 
-async def test_check_uses_cardano_height_fallback():
+async def test_check_uses_cardano_height_fallback() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         if request.url.host == "zkp":
             return httpx2.Response(200, json={})
@@ -66,7 +70,7 @@ async def test_check_uses_cardano_height_fallback():
     await client.aclose()
 
 
-async def test_check_tolerates_non_numeric_block():
+async def test_check_tolerates_non_numeric_block() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         if request.url.host == "zkp":
             return httpx2.Response(200, json={"status": "healthy"})

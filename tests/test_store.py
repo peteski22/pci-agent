@@ -52,14 +52,14 @@ def _service_req(request_id: str) -> ServiceRequest:
     )
 
 
-def test_service_request_add_and_get():
+def test_service_request_add_and_get() -> None:
     repo = ServiceRequestRepository()
     repo.add(_service_req("a"))
     assert repo.get("a").id == "a"
     assert repo.get("missing") is None
 
 
-def test_service_request_replace_updates_in_place():
+def test_service_request_replace_updates_in_place() -> None:
     repo = ServiceRequestRepository()
     repo.add(_service_req("a"))
     updated = repo.get("a").model_copy(update={"status": ServiceRequestStatus.VERIFIED})

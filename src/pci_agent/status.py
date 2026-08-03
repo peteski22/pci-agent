@@ -45,6 +45,16 @@ class StatusClient:
         cardano_url: str,
         client: httpx2.AsyncClient | None = None,
     ) -> None:
+        """Configure the probe targets.
+
+        Args:
+            agent_url: The agent's own base URL, reported as-is.
+            zkp_url: Base URL of the ZKP service; its /health route is probed.
+            cardano_url: Base URL of the Cardano devnet API.
+            client: HTTP client override (injected in tests). When omitted, an
+                owned client with a 5-second timeout is created and closed by
+                aclose.
+        """
         self._agent_url = agent_url
         self._zkp_url = zkp_url
         self._cardano_url = cardano_url
@@ -61,6 +71,7 @@ class StatusClient:
         )
 
     async def _check_zkp(self) -> EndpointStatus:
+        """Probe the ZKP service's health route."""
         try:
             payload = await self._get_json(f"{self._zkp_url}/health")
         except (httpx2.HTTPError, ValueError) as exc:
@@ -69,6 +80,11 @@ class StatusClient:
         return EndpointStatus(status=str(status), url=self._zkp_url)
 
     async def _check_cardano(self) -> CardanoStatus:
+        """Probe the Cardano devnet's latest block.
+
+        The block number field differs across Yaci Store versions (number vs
+        height), so both are tried before giving up on the block.
+        """
         try:
             payload = await self._get_json(f"{self._cardano_url}/api/v1/blocks/latest")
         except (httpx2.HTTPError, ValueError) as exc:
@@ -80,6 +96,7 @@ class StatusClient:
         return CardanoStatus(status="healthy", url=self._cardano_url, latest_block=block)
 
     async def _get_json(self, url: str) -> object:
+        """Fetch a URL and decode its JSON body, raising on any failure."""
         response = await self._client.get(url)
         response.raise_for_status()
         return response.json()

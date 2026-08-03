@@ -75,9 +75,21 @@ class ServiceRequest(BaseModel):
     service_name: str
     status: ServiceRequestStatus = ServiceRequestStatus.PENDING
     created_at: datetime
+    # Advisory for clients only; not enforced anywhere (parity with the legacy
+    # server, which stamped an expiry on service requests but never read it).
     expires_at: datetime
     verification_request_id: str | None = None
     completed_at: datetime | None = None
+
+
+class CreateServiceRequest(BaseModel):
+    """Inbound payload for POST /service-requests."""
+
+    user_id: str
+    user_name: str
+    business_id: str
+    service_type: str
+    service_name: str
 
 
 class VerificationClaim(BaseModel):

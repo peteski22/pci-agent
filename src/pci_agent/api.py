@@ -21,19 +21,21 @@ from pci_agent.context import ContextClient
 from pci_agent.coordination import (
     ApprovalDecision,
     ApprovalMode,
+    CreateServiceRequest,
     RequestStatus,
     ServiceRequest,
     ServiceRequestStatus,
     VerificationClaim,
     VerificationRequest,
 )
+from pci_agent.errors import ServiceRequestConflict, ServiceRequestNotFound
 from pci_agent.policy import PolicyChecker
 from pci_agent.seams import (
     ContextStoreDataProvider,
     DeterministicContextBuilder,
 )
+from pci_agent.services import service_requests
 from pci_agent.services.approval import ApprovalService, resolved_status_for, status_for
-from pci_agent.services.service_requests import LINKABLE_STATUSES, service_status_for
 from pci_agent.status import ServicesStatus, StatusClient
 from pci_agent.store import RequestRepository, ServiceRequestRepository
 from pci_agent.zkp import ZKPClient
@@ -61,16 +63,6 @@ class CreateVerificationRequest(BaseModel):
     policy_id: str | None = None
     context_scope: str | None = None
     service_request_id: str | None = None
-
-
-class CreateServiceRequest(BaseModel):
-    """Inbound payload for POST /service-requests."""
-
-    user_id: str
-    user_name: str
-    business_id: str
-    service_type: str
-    service_name: str
 
 
 def _default_service_factory(config: AgentConfig, zkp_client: ZKPClient) -> Callable[[], _Decider]:
@@ -139,10 +131,12 @@ def create_app(
         try:
             yield
         finally:
-            if zkp_client is not None:
-                await zkp_client.aclose()
-            if status_client is not None:
-                await status_client.aclose()
+            try:
+                if zkp_client is not None:
+                    await zkp_client.aclose()
+            finally:
+                if status_client is not None:
+                    await status_client.aclose()
 
     app = FastAPI(title="pci-agent", version="0.1.0", lifespan=lifespan)
 
@@ -164,45 +158,6 @@ def create_app(
             raise HTTPException(status_code=404, detail="request not found")
         return req
 
-    def _link_service_request(req: VerificationRequest) -> None:
-        """Attach a new verification request to its service request, if any.
-
-        Raises:
-            HTTPException: 404 if the referenced service request is not
-                tracked, 409 if it has already been resolved.
-        """
-        if req.service_request_id is None:
-            return
-        service_req = service_repo.get(req.service_request_id)
-        if service_req is None:
-            raise HTTPException(status_code=404, detail="service request not found")
-        if service_req.status not in LINKABLE_STATUSES:
-            raise HTTPException(status_code=409, detail="service request already resolved")
-        service_repo.replace(
-            service_req.model_copy(
-                update={
-                    "status": ServiceRequestStatus.VERIFICATION_REQUIRED,
-                    "verification_request_id": req.id,
-                }
-            )
-        )
-
-    def _sync_service_request(req: VerificationRequest) -> None:
-        """Propagate a verification outcome to the linked service request.
-
-        Only the verification request the service request currently links to
-        may drive it; a stale, re-requested verification is ignored.
-        """
-        if req.service_request_id is None:
-            return
-        service_req = service_repo.get(req.service_request_id)
-        if service_req is None or service_req.verification_request_id != req.id:
-            return
-        new_status = service_status_for(req.status)
-        if new_status is None or service_req.status is new_status:
-            return
-        service_repo.replace(service_req.model_copy(update={"status": new_status}))
-
     @app.post("/requests", status_code=201)
     async def create_request(payload: CreateVerificationRequest) -> VerificationRequest:
         """Create a request; autonomously resolve it unless in manual mode."""
@@ -218,7 +173,12 @@ def create_app(
             created_at=now,
             expires_at=now + timedelta(minutes=5),
         )
-        _link_service_request(req)
+        try:
+            service_requests.link_verification(service_repo, req)
+        except ServiceRequestNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ServiceRequestConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         if config.approval.mode is not ApprovalMode.MANUAL:
             try:
                 decision = await make_service().decide(req)
@@ -232,7 +192,7 @@ def create_app(
                 }
             )
         repo.add(req)
-        _sync_service_request(req)
+        service_requests.apply_verification_outcome(service_repo, req)
         return req
 
     @app.post("/requests/{request_id}/approve")
@@ -256,7 +216,7 @@ def create_app(
             }
         )
         repo.replace(req)
-        _sync_service_request(req)
+        service_requests.apply_verification_outcome(service_repo, req)
         return req
 
     @app.post("/requests/{request_id}/deny")
@@ -275,7 +235,7 @@ def create_app(
             }
         )
         repo.replace(req)
-        _sync_service_request(req)
+        service_requests.apply_verification_outcome(service_repo, req)
         return req
 
     @app.get("/services")
@@ -304,19 +264,7 @@ def create_app(
     @app.post("/service-requests", status_code=201)
     async def create_service_request(payload: CreateServiceRequest) -> ServiceRequest:
         """Create a pending service request for the business to pick up."""
-        now = datetime.now(UTC)
-        service_req = ServiceRequest(
-            id=uuid.uuid4().hex,
-            user_id=payload.user_id,
-            user_name=payload.user_name,
-            business_id=payload.business_id,
-            service_type=payload.service_type,
-            service_name=payload.service_name,
-            created_at=now,
-            expires_at=now + timedelta(minutes=10),
-        )
-        service_repo.add(service_req)
-        return service_req
+        return service_requests.create(service_repo, payload)
 
     @app.post("/service-requests/{request_id}/complete")
     async def complete_service_request(request_id: str) -> ServiceRequest:
@@ -325,21 +273,12 @@ def create_app(
         Completing an already-completed request is idempotent and returns the
         request unchanged with 200; any other unverified state is a 409.
         """
-        service_req = service_repo.get(request_id)
-        if service_req is None:
-            raise HTTPException(status_code=404, detail="service request not found")
-        if service_req.status is ServiceRequestStatus.COMPLETED:
-            return service_req
-        if service_req.status is not ServiceRequestStatus.VERIFIED:
-            raise HTTPException(status_code=409, detail="service request not verified")
-        service_req = service_req.model_copy(
-            update={
-                "status": ServiceRequestStatus.COMPLETED,
-                "completed_at": datetime.now(UTC),
-            }
-        )
-        service_repo.replace(service_req)
-        return service_req
+        try:
+            return service_requests.complete(service_repo, request_id)
+        except ServiceRequestNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ServiceRequestConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return app
 
