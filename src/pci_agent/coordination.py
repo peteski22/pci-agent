@@ -53,6 +53,33 @@ class DecisionOutcome(StrEnum):
     ERROR = "error"
 
 
+class ServiceRequestStatus(StrEnum):
+    """Lifecycle state of a user-to-business service request."""
+
+    PENDING = "pending"
+    VERIFICATION_REQUIRED = "verification_required"
+    VERIFIED = "verified"
+    COMPLETED = "completed"
+    DENIED = "denied"
+    REJECTED = "rejected"
+
+
+class ServiceRequest(BaseModel):
+    """A user-to-business service request tracked by the coordinator."""
+
+    id: str
+    user_id: str
+    user_name: str
+    business_id: str
+    service_type: str
+    service_name: str
+    status: ServiceRequestStatus = ServiceRequestStatus.PENDING
+    created_at: datetime
+    expires_at: datetime
+    verification_request_id: str | None = None
+    completed_at: datetime | None = None
+
+
 class VerificationClaim(BaseModel):
     """The claim a business asks the user to prove (e.g. age >= 18)."""
 
