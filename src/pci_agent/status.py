@@ -91,8 +91,10 @@ class StatusClient:
             return CardanoStatus(status="unavailable", url=self._cardano_url, error=_reason(exc))
         block = None
         if isinstance(payload, dict):
-            raw = payload.get("number") or payload.get("height")
-            block = raw if isinstance(raw, int) else None
+            raw = payload.get("number")
+            if raw is None:
+                raw = payload.get("height")
+            block = raw if isinstance(raw, int) and not isinstance(raw, bool) else None
         return CardanoStatus(status="healthy", url=self._cardano_url, latest_block=block)
 
     async def _get_json(self, url: str) -> object:

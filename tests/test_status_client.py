@@ -70,6 +70,19 @@ async def test_check_uses_cardano_height_fallback() -> None:
     await client.aclose()
 
 
+async def test_check_reports_block_zero_without_height_fallback() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.host == "zkp":
+            return httpx2.Response(200, json={"status": "healthy"})
+        return httpx2.Response(200, json={"number": 0, "height": 5})
+
+    client = _client(handler)
+    result = await client.check()
+    assert result.cardano.status == "healthy"
+    assert result.cardano.latest_block == 0
+    await client.aclose()
+
+
 async def test_check_tolerates_non_numeric_block() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         if request.url.host == "zkp":

@@ -1,5 +1,6 @@
 """Tests for the restored /services and /service-requests routes."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from pci_agent.api import create_app
@@ -13,7 +14,7 @@ from pci_agent.coordination import (
     VerificationRequest,
 )
 from pci_agent.services.service_requests import service_status_for
-from pci_agent.status import CardanoStatus, EndpointStatus, ServicesStatus
+from pci_agent.status import CardanoStatus, EndpointStatus, ServicesStatus, StatusClient
 
 
 class StubService:
@@ -84,6 +85,20 @@ def _verification_payload(service_request_id: str | None = None) -> dict[str, ob
     if service_request_id is not None:
         payload["service_request_id"] = service_request_id
     return payload
+
+
+def test_lifespan_closes_owned_status_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    closed: list[StatusClient] = []
+
+    async def record_aclose(self: StatusClient) -> None:
+        closed.append(self)
+
+    monkeypatch.setattr(StatusClient, "aclose", record_aclose)
+    config = AgentConfig(approval=ApprovalConfig(mode=ApprovalMode.MANUAL))
+    app = create_app(config, service_factory=lambda: StubService(DecisionOutcome.APPROVE))
+    with TestClient(app):
+        pass
+    assert len(closed) == 1
 
 
 def test_services_returns_status_aggregate() -> None:
