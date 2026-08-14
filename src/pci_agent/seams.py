@@ -7,6 +7,7 @@ changing the service.
 
 from __future__ import annotations
 
+import json
 from typing import Protocol
 
 from pci_agent.context import ContextItem
@@ -74,7 +75,7 @@ class ContextSearcher(Protocol):
 
 
 class ContextStoreDataProvider:
-    """Phase 1 PrivateDataProvider backed by the (mocked) context store."""
+    """PrivateDataProvider backed by the context store."""
 
     def __init__(self, client: ContextSearcher) -> None:
         self._client = client
@@ -82,14 +83,29 @@ class ContextStoreDataProvider:
     async def fetch(self, scope: str | None) -> dict[str, object]:
         """Fetch private data for a scope from the context store.
 
+        Entries whose content is a JSON object are flattened into the
+        result so their fields (e.g. a birth date) are addressable as
+        proof inputs; any other content is keyed by its entry id.
+
         Raises:
             ContextUnavailable: if the store cannot be queried.
         """
         try:
             items = await self._client.search(query="", scope=scope, limit=50)
-        except RuntimeError as exc:
+        except (RuntimeError, ContextUnavailable) as exc:
             raise ContextUnavailable("private data unavailable") from exc
-        return {item.id: item.content for item in items}
+
+        data: dict[str, object] = {}
+        for item in items:
+            try:
+                parsed = json.loads(item.content)
+            except ValueError:
+                parsed = None
+            if isinstance(parsed, dict):
+                data.update({str(key): value for key, value in parsed.items()})
+            else:
+                data[item.id] = item.content
+        return data
 
 
 class DeterministicContextBuilder:

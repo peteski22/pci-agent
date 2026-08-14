@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from pci_agent.api import create_app
 from pci_agent.config import AgentConfig, ApprovalConfig
+from pci_agent.context import ContextClient
 from pci_agent.coordination import (
     ApprovalDecision,
     ApprovalMode,
@@ -13,6 +14,7 @@ from pci_agent.coordination import (
     ServiceRequestStatus,
     VerificationRequest,
 )
+from pci_agent.errors import ContextUnavailable
 from pci_agent.services.service_requests import service_status_for
 from pci_agent.status import CardanoStatus, EndpointStatus, ServicesStatus, StatusClient
 
@@ -296,3 +298,41 @@ def test_service_status_for_leaves_unresolved_outcomes_unmapped() -> None:
     assert service_status_for(RequestStatus.PENDING) is None
     assert service_status_for(RequestStatus.ESCALATED) is None
     assert service_status_for(RequestStatus.ERROR) is None
+
+
+def test_lifespan_connects_and_closes_owned_context_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connected: list[ContextClient] = []
+    closed: list[ContextClient] = []
+
+    async def record_connect(self: ContextClient) -> None:
+        connected.append(self)
+
+    async def record_disconnect(self: ContextClient) -> None:
+        closed.append(self)
+
+    monkeypatch.setattr(ContextClient, "connect", record_connect)
+    monkeypatch.setattr(ContextClient, "disconnect", record_disconnect)
+    config = AgentConfig(approval=ApprovalConfig(mode=ApprovalMode.MANUAL))
+    app = create_app(config)
+    with TestClient(app):
+        assert len(connected) == 1
+    assert closed == connected
+
+
+def test_lifespan_survives_unreachable_context_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def failing_connect(self: ContextClient) -> None:
+        raise ContextUnavailable("context store unreachable")
+
+    async def noop_disconnect(self: ContextClient) -> None:
+        return None
+
+    monkeypatch.setattr(ContextClient, "connect", failing_connect)
+    monkeypatch.setattr(ContextClient, "disconnect", noop_disconnect)
+    config = AgentConfig(approval=ApprovalConfig(mode=ApprovalMode.MANUAL))
+    app = create_app(config)
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200

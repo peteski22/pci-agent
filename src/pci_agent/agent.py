@@ -18,6 +18,7 @@ from datetime import datetime
 
 from pci_agent.config import AgentConfig
 from pci_agent.context import ContextClient, ContextItem
+from pci_agent.errors import ContextUnavailable
 from pci_agent.models.local_llm import LocalLLM
 from pci_agent.models.ollama import OllamaBackend
 from pci_agent.models.openai import OpenAICompatBackend
@@ -74,6 +75,10 @@ class Agent:
 
         try:
             await self._context_client.connect()
+        except ContextUnavailable:
+            # The store may not be running; context retrieval degrades to
+            # empty results until it becomes reachable.
+            pass
         except BaseException:
             # Release any backend resources we just acquired so a retry can
             # start from a clean slate; ``_initialized`` stays False.
@@ -115,12 +120,16 @@ class Agent:
                     timestamp=datetime.now(),
                 )
 
-        # Retrieve relevant context
-        context_items = await self._context_client.search(
-            query,
-            scope=context_scope,
-            limit=self.config.max_context_items,
-        )
+        # Retrieve relevant context; an unreachable store degrades the
+        # answer to no-context rather than failing the query.
+        try:
+            context_items = await self._context_client.search(
+                query,
+                scope=context_scope,
+                limit=self.config.max_context_items,
+            )
+        except ContextUnavailable:
+            context_items = []
 
         # Generate response
         response_content = await self._generate_response(query, context_items)

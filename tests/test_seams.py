@@ -75,3 +75,37 @@ async def test_context_store_provider_raises_context_unavailable_on_failure():
         await ContextStoreDataProvider(fake).fetch("health/age")
 
     assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+
+async def test_context_store_provider_wraps_client_context_unavailable():
+    fake = _FakeContextClient(error=ContextUnavailable("context store unreachable"))
+
+    with pytest.raises(ContextUnavailable) as exc_info:
+        await ContextStoreDataProvider(fake).fetch("health/age")
+
+    assert isinstance(exc_info.value.__cause__, ContextUnavailable)
+
+
+async def test_context_store_provider_flattens_json_object_content():
+    items = [
+        ContextItem(
+            id="personal-context",
+            content='{"birthDate": "1990-05-15", "fullName": "Alice Demo"}',
+            score=1.0,
+        ),
+    ]
+
+    result = await ContextStoreDataProvider(_FakeContextClient(items=items)).fetch(None)
+
+    assert result == {"birthDate": "1990-05-15", "fullName": "Alice Demo"}
+
+
+async def test_context_store_provider_keeps_non_object_content_keyed_by_id():
+    items = [
+        ContextItem(id="note", content="plain text", score=1.0),
+        ContextItem(id="count", content="42", score=1.0),
+    ]
+
+    result = await ContextStoreDataProvider(_FakeContextClient(items=items)).fetch(None)
+
+    assert result == {"note": "plain text", "count": "42"}

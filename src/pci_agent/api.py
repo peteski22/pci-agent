@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
@@ -28,7 +28,7 @@ from pci_agent.coordination import (
     VerificationClaim,
     VerificationRequest,
 )
-from pci_agent.errors import ServiceRequestConflict, ServiceRequestNotFound
+from pci_agent.errors import ContextUnavailable, ServiceRequestConflict, ServiceRequestNotFound
 from pci_agent.policy import PolicyChecker
 from pci_agent.seams import (
     ContextStoreDataProvider,
@@ -65,12 +65,14 @@ class CreateVerificationRequest(BaseModel):
     service_request_id: str | None = None
 
 
-def _default_service_factory(config: AgentConfig, zkp_client: ZKPClient) -> Callable[[], _Decider]:
+def _default_service_factory(
+    zkp_client: ZKPClient, context_client: ContextClient
+) -> Callable[[], _Decider]:
     def factory() -> _Decider:
         return ApprovalService(
             PolicyChecker(),
             DeterministicContextBuilder(),
-            ContextStoreDataProvider(ContextClient(config.context)),
+            ContextStoreDataProvider(context_client),
             zkp_client,
         )
 
@@ -105,13 +107,16 @@ def create_app(
     repo = repository or RequestRepository()
     service_repo = service_request_repository or ServiceRequestRepository()
 
-    # A single ZKPClient owns one connection pool for the app's lifetime; the
-    # per-request service is otherwise cheap to rebuild. Tests inject their own
-    # factory and so never create the shared client.
+    # A single ZKPClient and ContextClient own one connection pool each for
+    # the app's lifetime; the per-request service is otherwise cheap to
+    # rebuild. Tests inject their own factory and so never create the shared
+    # clients.
     zkp_client: ZKPClient | None = None
+    context_client: ContextClient | None = None
     if service_factory is None:
         zkp_client = ZKPClient(ZKP_SERVICE_URL)
-        make_service: Callable[[], _Decider] = _default_service_factory(config, zkp_client)
+        context_client = ContextClient(config.context)
+        make_service: Callable[[], _Decider] = _default_service_factory(zkp_client, context_client)
     else:
         make_service = service_factory
 
@@ -127,7 +132,12 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        """Close the shared HTTP clients' connection pools on shutdown."""
+        """Connect the context store on startup; close shared clients on shutdown."""
+        # The store may come up after the agent; each approval that needs it
+        # before then resolves to an ERROR outcome.
+        if context_client is not None:
+            with suppress(ContextUnavailable):
+                await context_client.connect()
         try:
             yield
         finally:
@@ -135,8 +145,12 @@ def create_app(
                 if zkp_client is not None:
                     await zkp_client.aclose()
             finally:
-                if status_client is not None:
-                    await status_client.aclose()
+                try:
+                    if status_client is not None:
+                        await status_client.aclose()
+                finally:
+                    if context_client is not None:
+                        await context_client.disconnect()
 
     app = FastAPI(title="pci-agent", version="0.1.0", lifespan=lifespan)
 

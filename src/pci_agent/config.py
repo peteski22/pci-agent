@@ -79,8 +79,12 @@ class LLMConfig(BaseModel):
 class ContextConfig(BaseModel):
     """Configuration for context store connection"""
 
-    endpoint: str = "http://localhost:8080"
+    endpoint: str = "http://localhost:8081"
     timeout_seconds: float = 30.0
+    user_id: str = "default"
+    # Vault password for client-side decryption. The store only holds
+    # ciphertext; without this, entry content cannot be read.
+    password: str | None = None
 
 
 class ApprovalConfig(BaseModel):
@@ -133,6 +137,14 @@ class AgentConfig(BaseModel):
                 openai_model=os.environ.get("PCI_OPENAI_MODEL"),
                 openai_api_key=os.environ.get("PCI_OPENAI_API_KEY"),
                 openai_timeout_seconds=_parse_env_timeout("PCI_OPENAI_TIMEOUT", 120.0),
+            ),
+            # CONTEXT_STORE_URL is unprefixed to match the variable the
+            # deployment compose files already set.
+            context=ContextConfig(
+                endpoint=os.environ.get("CONTEXT_STORE_URL", "http://localhost:8081"),
+                timeout_seconds=_parse_env_timeout("PCI_CONTEXT_TIMEOUT", 30.0),
+                user_id=os.environ.get("PCI_CONTEXT_USER_ID", "default"),
+                password=os.environ.get("PCI_CONTEXT_PASSWORD"),
             ),
             approval=ApprovalConfig(mode=mode),
         )
