@@ -77,7 +77,7 @@ async def test_context_store_provider_raises_context_unavailable_on_failure():
     assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
-async def test_context_store_provider_wraps_client_context_unavailable():
+async def test_context_store_provider_wraps_client_context_unavailable() -> None:
     fake = _FakeContextClient(error=ContextUnavailable("context store unreachable"))
 
     with pytest.raises(ContextUnavailable) as exc_info:
@@ -86,7 +86,7 @@ async def test_context_store_provider_wraps_client_context_unavailable():
     assert isinstance(exc_info.value.__cause__, ContextUnavailable)
 
 
-async def test_context_store_provider_flattens_json_object_content():
+async def test_context_store_provider_flattens_json_object_content() -> None:
     items = [
         ContextItem(
             id="personal-context",
@@ -100,7 +100,7 @@ async def test_context_store_provider_flattens_json_object_content():
     assert result == {"birthDate": "1990-05-15", "fullName": "Alice Demo"}
 
 
-async def test_context_store_provider_keeps_non_object_content_keyed_by_id():
+async def test_context_store_provider_keeps_non_object_content_keyed_by_id() -> None:
     items = [
         ContextItem(id="note", content="plain text", score=1.0),
         ContextItem(id="count", content="42", score=1.0),

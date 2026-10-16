@@ -13,6 +13,7 @@ import base64
 import binascii
 import json
 from dataclasses import dataclass
+from urllib.parse import quote
 
 import httpx2
 from cryptography.exceptions import InvalidTag
@@ -103,7 +104,12 @@ class ContextClient:
         self._connected = True
 
     async def disconnect(self) -> None:
-        """Disconnect from the context store"""
+        """Disconnect from the context store.
+
+        For a client this instance owns, the connection pool is closed and
+        the instance cannot be reused; injected clients stay open and remain
+        their owner's responsibility.
+        """
         self._connected = False
         if self._owns_client:
             await self._client.aclose()
@@ -157,7 +163,7 @@ class ContextClient:
                 password is configured, or the entry cannot be decrypted.
         """
         try:
-            response = await self._client.get(f"/entries/{item_id}")
+            response = await self._client.get(f"/entries/{quote(item_id, safe='')}")
             if response.status_code == 404:
                 return None
             response.raise_for_status()
@@ -201,5 +207,9 @@ class ContextClient:
 
     @property
     def is_connected(self) -> bool:
-        """Check if connected to context store"""
+        """Report the outcome of the most recent connect()/disconnect().
+
+        This is not live reachability: reads proceed regardless, so a store
+        that comes up after a failed connect() still serves them.
+        """
         return self._connected

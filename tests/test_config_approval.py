@@ -18,14 +18,14 @@ def test_unknown_mode_falls_back_to_manual(monkeypatch: pytest.MonkeyPatch):
     assert AgentConfig.from_env().approval.mode is ApprovalMode.MANUAL
 
 
-def test_context_defaults():
+def test_context_defaults() -> None:
     context = AgentConfig().context
     assert context.endpoint == "http://localhost:8081"
     assert context.user_id == "default"
     assert context.password is None
 
 
-def test_context_from_env(monkeypatch: pytest.MonkeyPatch):
+def test_context_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CONTEXT_STORE_URL", "http://context-store:8081")
     monkeypatch.setenv("PCI_CONTEXT_USER_ID", "demo-user")
     monkeypatch.setenv("PCI_CONTEXT_PASSWORD", "vault-pass")

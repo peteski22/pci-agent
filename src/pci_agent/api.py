@@ -6,10 +6,11 @@ path, and serialize. All decision logic lives in ApprovalService.
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
@@ -42,6 +43,8 @@ from pci_agent.zkp import ZKPClient
 
 ZKP_SERVICE_URL = os.environ.get("ZKP_SERVICE_URL", "http://localhost:8084")
 CARDANO_API_URL = os.environ.get("CARDANO_API_URL", "http://localhost:8080")
+
+logger = logging.getLogger(__name__)
 
 
 class _Decider(Protocol):
@@ -136,8 +139,13 @@ def create_app(
         # The store may come up after the agent; each approval that needs it
         # before then resolves to an ERROR outcome.
         if context_client is not None:
-            with suppress(ContextUnavailable):
+            try:
                 await context_client.connect()
+            except ContextUnavailable:
+                logger.warning(
+                    "context store unreachable at startup; approvals will "
+                    "error until it becomes reachable"
+                )
         try:
             yield
         finally:

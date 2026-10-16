@@ -13,6 +13,7 @@ The agent has two orthogonal responsibilities:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -27,6 +28,8 @@ from pci_agent.models.spal_bridge import (
 )
 from pci_agent.policy import PolicyChecker
 from pci_agent.spal import RequestContext
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -78,7 +81,7 @@ class Agent:
         except ContextUnavailable:
             # The store may not be running; context retrieval degrades to
             # empty results until it becomes reachable.
-            pass
+            logger.warning("context store unreachable at startup; continuing without context")
         except BaseException:
             # Release any backend resources we just acquired so a retry can
             # start from a clean slate; ``_initialized`` stays False.
@@ -129,6 +132,7 @@ class Agent:
                 limit=self.config.max_context_items,
             )
         except ContextUnavailable:
+            logger.warning("context store unavailable; answering without context")
             context_items = []
 
         # Generate response

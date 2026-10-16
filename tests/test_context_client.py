@@ -73,7 +73,7 @@ def _store_handler(entries: dict[str, dict[str, object]]):
     return handler
 
 
-async def test_connect_succeeds_against_healthy_store():
+async def test_connect_succeeds_against_healthy_store() -> None:
     client = _client(_store_handler({}))
     await client.connect()
     assert client.is_connected is True
@@ -81,7 +81,7 @@ async def test_connect_succeeds_against_healthy_store():
     assert client.is_connected is False
 
 
-async def test_connect_raises_when_store_unreachable():
+async def test_connect_raises_when_store_unreachable() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError("refused")
 
@@ -92,7 +92,7 @@ async def test_connect_raises_when_store_unreachable():
     await client.disconnect()
 
 
-async def test_connect_sends_user_id_header():
+async def test_connect_sends_user_id_header() -> None:
     seen: list[str | None] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -105,7 +105,7 @@ async def test_connect_sends_user_id_header():
     await client.disconnect()
 
 
-async def test_search_returns_decrypted_items():
+async def test_search_returns_decrypted_items() -> None:
     plaintext = json.dumps({"birthDate": "1990-05-15", "fullName": "Alice Demo"})
     client = _client(_store_handler({"personal-context": _entry("personal-context", plaintext, version=3)}))
 
@@ -121,7 +121,7 @@ async def test_search_returns_decrypted_items():
     await client.disconnect()
 
 
-async def test_search_scope_filters_by_key_prefix():
+async def test_search_scope_filters_by_key_prefix() -> None:
     entries = {
         "personal-context": _entry("personal-context", '{"birthDate": "1990-05-15"}'),
         "finance-history": _entry("finance-history", '{"balance": 12}'),
@@ -134,7 +134,7 @@ async def test_search_scope_filters_by_key_prefix():
     await client.disconnect()
 
 
-async def test_search_query_filters_content():
+async def test_search_query_filters_content() -> None:
     entries = {
         "a": _entry("a", '{"fullName": "Alice Demo"}'),
         "b": _entry("b", '{"fullName": "Bob Demo"}'),
@@ -147,7 +147,7 @@ async def test_search_query_filters_content():
     await client.disconnect()
 
 
-async def test_search_respects_limit():
+async def test_search_respects_limit() -> None:
     entries = {f"key-{i}": _entry(f"key-{i}", f'{{"n": {i}}}') for i in range(5)}
     client = _client(_store_handler(entries))
 
@@ -157,7 +157,7 @@ async def test_search_respects_limit():
     await client.disconnect()
 
 
-async def test_search_skips_entry_deleted_mid_scan():
+async def test_search_skips_entry_deleted_mid_scan() -> None:
     plaintext = '{"birthDate": "1990-05-15"}'
     entries = {"kept": _entry("kept", plaintext)}
 
@@ -177,7 +177,7 @@ async def test_search_skips_entry_deleted_mid_scan():
     await client.disconnect()
 
 
-async def test_search_raises_unavailable_on_transport_error():
+async def test_search_raises_unavailable_on_transport_error() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError("refused")
 
@@ -187,21 +187,21 @@ async def test_search_raises_unavailable_on_transport_error():
     await client.disconnect()
 
 
-async def test_search_raises_without_password():
+async def test_search_raises_without_password() -> None:
     client = _client(_store_handler({"k": _entry("k", "{}")}), password=None)
     with pytest.raises(ContextUnavailable):
         await client.search("")
     await client.disconnect()
 
 
-async def test_search_raises_on_wrong_password():
+async def test_search_raises_on_wrong_password() -> None:
     client = _client(_store_handler({"k": _entry("k", "{}")}), password="not-the-vault-pass")
     with pytest.raises(ContextUnavailable):
         await client.search("")
     await client.disconnect()
 
 
-async def test_get_returns_decrypted_item():
+async def test_get_returns_decrypted_item() -> None:
     plaintext = '{"birthDate": "1990-05-15"}'
     client = _client(_store_handler({"personal-context": _entry("personal-context", plaintext)}))
 
@@ -213,7 +213,7 @@ async def test_get_returns_decrypted_item():
     await client.disconnect()
 
 
-async def test_get_returns_none_when_missing():
+async def test_get_returns_none_when_missing() -> None:
     client = _client(_store_handler({}))
     assert await client.get("nope") is None
     await client.disconnect()
